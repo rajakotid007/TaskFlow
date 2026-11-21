@@ -8,3 +8,6 @@ playwright-report/
 test-results/
 blob-report/
 *.log
+
+# Rails app (backend/) — see backend/.gitignore for app-specific rules
+backend/config/master.key

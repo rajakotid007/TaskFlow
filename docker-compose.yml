@@ -1,26 +1,72 @@
-# Local dependencies only. The API, worker, and frontend run on the host (see README).
-# Not verified in the build sandbox, which had no Docker daemon available.
+name: taskflow
+
+x-backend: &backend
+  build:
+    context: ./backend
+    dockerfile: Dockerfile.dev
+  image: taskflow-backend-dev
+  volumes:
+    - ./backend:/app
+    - bundle:/usr/local/bundle
+  environment: &backend-env
+    DATABASE_HOST: postgres
+    DATABASE_USERNAME: taskflow
+    DATABASE_PASSWORD: taskflow
+    REDIS_URL: redis://redis:6379/0
+    FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5174,http://127.0.0.1:5174}
+    SIMULATION_CONTROLS_ENABLED: ${SIMULATION_CONTROLS_ENABLED:-true}
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
 services:
   postgres:
-    image: postgres:16
+    image: postgres:16-alpine
     environment:
       POSTGRES_USER: taskflow
       POSTGRES_PASSWORD: taskflow
-      POSTGRES_DB: taskflow_development
-    ports: ["5432:5432"]
-    volumes: [pgdata:/var/lib/postgresql/data]
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U taskflow"]
-      interval: 5s
-      retries: 10
+      interval: 2s
+      timeout: 3s
+      retries: 30
 
   redis:
-    image: redis:7
-    ports: ["6379:6379"]
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    volumes:
+      - redisdata:/data
+    command: ["redis-server", "--appendonly", "yes"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      retries: 10
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api:
+    <<: *backend
+    environment:
+      <<: *backend-env
+      # Several browser tabs poll and hold sockets; 3 threads queue up in dev.
+      RAILS_MAX_THREADS: "8"
+    ports:
+      - "3000:3000"
+
+  worker:
+    <<: *backend
+    command: ["bash", "-c", "bundle install --quiet && bundle exec sidekiq -C config/sidekiq.yml"]
+    depends_on:
+      api:
+        condition: service_started
 
 volumes:
   pgdata:
+  redisdata:
+  bundle:

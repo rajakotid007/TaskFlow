@@ -1,0 +1,26 @@
+source "https://rubygems.org"
+
+gem "rails", "~> 8.0.5", ">= 8.0.5.2"
+gem "pg", "~> 1.1"
+gem "puma", ">= 5.0"
+# Action Cable's Redis adapter requires redis < 6.
+gem "redis", "~> 5.4"
+gem "sidekiq", "~> 7.3"
+# connection_pool 3.x changed TimedStack#pop; Sidekiq 7.3 needs 2.x.
+gem "connection_pool", "~> 2.5"
+gem "rack-cors"
+# json 3.x drops options Rails 8.0 still passes to the generator.
+gem "json", "~> 2.10"
+gem "tzinfo-data", platforms: %i[ windows jruby ]
+gem "bootsnap", require: false
+
+group :development, :test do
+  gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
+  gem "rubocop-rails-omakase", require: false
+  gem "rspec-rails", "~> 7.1"
+  gem "factory_bot_rails"
+end
+
+group :test do
+  gem "shoulda-matchers", "~> 6.0"
+end

@@ -1,0 +1,14 @@
+# The Sidekiq worker runs in a separate process, so development uses Redis
+# pub/sub as well; the async adapter would not see worker broadcasts.
+development:
+  adapter: redis
+  url: <%= ENV.fetch("REDIS_URL") { "redis://localhost:6379/0" } %>
+  channel_prefix: taskflow_development
+
+test:
+  adapter: test
+
+production:
+  adapter: redis
+  url: <%= ENV.fetch("REDIS_URL") { "redis://localhost:6379/1" } %>
+  channel_prefix: taskflow_production

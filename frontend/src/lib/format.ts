@@ -1,58 +1,33 @@
-import type { Priority, TaskStatus } from '../api/types';
-
-export const STATUS_LABEL: Record<TaskStatus, string> = {
-  draft: 'Draft',
-  routing_pending: 'Routing pending',
-  awaiting_acceptance: 'Awaiting acceptance',
-  assigned: 'Assigned',
-  in_progress: 'In progress',
-  completed: 'Completed',
-  declined: 'Declined',
-  assignment_failed: 'Assignment failed',
-  needs_intervention: 'Needs intervention',
-  cancelled: 'Cancelled',
-};
-
-export const PRIORITY_LABEL: Record<Priority, string> = { low: 'Low', medium: 'Medium', high: 'High', urgent: 'Urgent' };
-
-export const EVENT_LABEL: Record<string, string> = {
-  task_created: 'Task created',
-  task_updated: 'Task updated',
-  routing_started: 'Routing started',
-  routing_result_received: 'Routing result received',
-  routing_no_match: 'No eligible contributor',
-  routing_superseded: 'Routing request superseded',
-  routing_dispatch_failed: 'Routing dispatch failed',
-  assignment_proposed: 'Assignment proposed',
-  assignment_accepted: 'Assignment accepted',
-  assignment_declined: 'Assignment declined',
-  assignment_failed: 'Assignment failed',
-  manual_intervention: 'Manual intervention',
-  recovery_initiated: 'Recovery initiated',
-  stale_result_ignored: 'Stale result ignored',
-  task_started: 'Work started',
-  task_completed: 'Task completed',
-  task_cancelled: 'Task cancelled',
-};
-
-export function formatDuration(totalSeconds: number | null | undefined): string {
-  if (totalSeconds == null) return '—';
-  const s = Math.max(0, Math.floor(totalSeconds));
-  const m = Math.floor(s / 60);
-  const rem = s % 60;
-  if (m === 0) return `${rem}s`;
-  return `${m}m ${String(rem).padStart(2, '0')}s`;
+export function formatDuration(totalSeconds: number) {
+  const s = Math.max(0, Math.floor(totalSeconds))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ${String(m % 60).padStart(2, '0')}m`
+  const d = Math.floor(h / 24)
+  return `${d}d ${h % 24}h`
 }
 
-export function formatDateTime(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+export function secondsSince(iso: string, now = Date.now()) {
+  return (now - new Date(iso).getTime()) / 1000
 }
 
-export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, { dateStyle: 'medium' });
+const dateTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+const timeWithSeconds = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+const dateOnly = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
+
+export const formatDateTime = (iso: string) => dateTime.format(new Date(iso))
+export const formatTime = (iso: string) => timeWithSeconds.format(new Date(iso))
+export const formatDate = (iso: string) => dateOnly.format(new Date(`${iso}T00:00:00`))
+
+export function formatRelative(iso: string, now = Date.now()) {
+  const s = secondsSince(iso, now)
+  if (s < 45) return 'just now'
+  if (s < 3600) return `${Math.round(s / 60)} min ago`
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`
+  return `${Math.round(s / 86400)} d ago`
 }
 
-export const isOpenStatus = (s: TaskStatus) => s !== 'completed' && s !== 'cancelled';
+const short = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+export const formatShort = (iso: string) => short.format(new Date(iso))

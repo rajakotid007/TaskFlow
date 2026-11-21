@@ -1,33 +1,37 @@
-import { defineConfig, devices } from '@playwright/test';
-import { fileURLToPath } from 'node:url';
+import { defineConfig, devices } from '@playwright/test'
 
-const backend = fileURLToPath(new URL('../backend', import.meta.url));
-const env = {
-  ...process.env,
-  NODE_ENV: 'development',
-  DATABASE_URL: process.env.DATABASE_URL ?? 'postgres://taskflow:taskflow@localhost:5432/taskflow_development',
-  REDIS_URL: process.env.REDIS_URL ?? 'redis://localhost:6379',
-  ALLOW_SIMULATION_CONTROLS: 'true',
-  PORT: '3000',
-} as Record<string, string>;
+/**
+ * End-to-end tests run against the real stack: Rails API + Sidekiq worker +
+ * Postgres + Redis (docker compose up) and the Vite dev server, with
+ * SIMULATION_CONTROLS_ENABLED=true so scenarios are deterministic.
+ *
+ * PW_CHANNEL selects the browser; defaults to the system Microsoft Edge so no
+ * browser download is required. Set PW_CHANNEL=chromium after
+ * `npx playwright install chromium` to use the bundled build instead.
+ */
+const channel = process.env.PW_CHANNEL ?? 'msedge'
 
 export default defineConfig({
   testDir: './e2e',
-  // Scenarios share one database and real background timing, so run them one at a time.
-  workers: 1,
-  fullyParallel: false,
-  timeout: 90_000,
-  globalSetup: './e2e/global-setup.ts',
+  timeout: 60_000,
+  expect: { timeout: 15_000 },
+  fullyParallel: true,
+  // The dev API is slow over Windows bind mounts; more workers just queue.
+  workers: 2,
+  retries: 0,
+  reporter: [['list']],
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5174',
     trace: 'retain-on-failure',
-    // Use the Chrome installed on this machine when Playwright's bundled browser is unavailable.
-    ...devices['Desktop Chrome'],
-    launchOptions: { executablePath: process.env.CHROME_PATH ?? '/usr/bin/google-chrome' },
+    screenshot: 'only-on-failure',
   },
-  webServer: [
-    { command: 'npx tsx src/server.ts', cwd: backend, url: 'http://localhost:3000/api/v1/health', reuseExistingServer: true, env, timeout: 60_000 },
-    { command: 'npx vite --port 5173 --strictPort', url: 'http://localhost:5173', reuseExistingServer: true, timeout: 60_000 },
+  projects: [
+    { name: 'edge', use: { ...devices['Desktop Edge'], ...(channel === 'chromium' ? {} : { channel }) } },
   ],
-  projects: [{ name: 'chrome', use: { ...devices['Desktop Chrome'] } }],
-});
+  webServer: {
+    command: 'npx vite --port 5174 --strictPort',
+    url: 'http://localhost:5174',
+    reuseExistingServer: true,
+    timeout: 60_000,
+  },
+})
