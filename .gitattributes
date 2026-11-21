@@ -1,0 +1,5 @@
+# Keep LF everywhere: the Rails app runs inside Linux containers via a bind
+# mount, and CRLF breaks shebang scripts such as backend/bin/rails.
+* text=auto eol=lf
+*.png binary
+*.ico binary

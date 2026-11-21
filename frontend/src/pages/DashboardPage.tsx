@@ -1,111 +1,135 @@
-import { Link } from 'react-router-dom';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Activity, AlertOctagon, CheckCircle2, Clock, Hourglass, PlusCircle, Send, UserCheck, XCircle, Layers } from 'lucide-react';
-import { useDashboard } from '../api/hooks';
-import { Card, ElapsedTime, ErrorState, Empty, Loading, PriorityBadge } from '../components/ui';
-import { EVENT_LABEL, PRIORITY_LABEL, formatDateTime } from '../lib/format';
+import { Link } from 'react-router'
+import clsx from 'clsx'
+import { AlertTriangle, ArrowRight, CheckCircle2, Hourglass, Inbox, ListTodo, Plus, Radar, UserCheck, XCircle } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { useDashboard } from '../api/hooks'
+import { Button, Card, CardHeader, ErrorBanner, PageHeader, Spinner } from '../components/ui/primitives'
+import { EventTimeline } from '../components/EventTimeline'
+import { BarList } from '../components/BarList'
+import { PendingTimer, PriorityBadge, TaskStatusBadge } from '../components/StatusBadges'
+import { PRIORITY, STATUS_REASON } from '../lib/status'
+import type { Priority } from '../api/types'
+
+function Stat({ label, value, icon, tone, to, hint }: {
+  label: string
+  value: number
+  icon: ReactNode
+  tone: 'blue' | 'green' | 'amber' | 'red' | 'gray'
+  to: string
+  hint?: string
+}) {
+  const toneCls = {
+    blue: 'text-blue-600 bg-blue-50 dark:bg-blue-500/10 dark:text-blue-300',
+    green: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-300',
+    amber: 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300',
+    red: 'text-red-600 bg-red-50 dark:bg-red-500/10 dark:text-red-300',
+    gray: 'text-slate-600 bg-slate-100 dark:bg-slate-500/10 dark:text-slate-300',
+  }[tone]
+  return (
+    <Link to={to} className="group" data-testid={`stat-${label}`}>
+      <Card className="h-full p-4 transition-shadow group-hover:shadow-md">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
+          <span className={clsx('rounded-md p-1.5', toneCls)}>{icon}</span>
+        </div>
+        <p className="mt-2 text-2xl font-semibold tabular-nums text-slate-900 dark:text-white">{value}</p>
+        {hint && <p className="mt-0.5 text-xs text-slate-500">{hint}</p>}
+      </Card>
+    </Link>
+  )
+}
 
 export function DashboardPage() {
-  const { data, isPending, error, refetch } = useDashboard();
-  if (isPending) return <Loading label="Loading operations summary…" />;
-  if (error) return <ErrorState error={error} onRetry={() => void refetch()} />;
+  const { data, isLoading, error, refetch } = useDashboard()
 
-  const c = data.counts;
-  const metrics = [
-    { label: 'Total tasks', value: c.total_tasks, icon: Layers, tone: 'text-slate-700 bg-slate-100' },
-    { label: 'Awaiting routing', value: c.awaiting_routing, icon: Send, tone: 'text-blue-700 bg-blue-50' },
-    { label: 'Awaiting acceptance', value: c.awaiting_acceptance, icon: Hourglass, tone: 'text-amber-700 bg-amber-50' },
-    { label: 'Active assignments', value: c.active_assignments, icon: UserCheck, tone: 'text-emerald-700 bg-emerald-50' },
-    { label: 'Unresolved routing requests', value: c.unresolved_routing_requests, icon: Clock, tone: 'text-blue-700 bg-blue-50' },
-    { label: 'Requiring intervention', value: c.requiring_intervention, icon: AlertOctagon, tone: 'text-amber-700 bg-amber-50' },
-    { label: 'Declined or failed', value: c.declined_or_failed, icon: XCircle, tone: 'text-red-700 bg-red-50' },
-    { label: 'Completed', value: c.completed, icon: CheckCircle2, tone: 'text-slate-600 bg-slate-100' },
-  ];
-  const chart = (['urgent', 'high', 'medium', 'low'] as const).map((p) => ({ name: PRIORITY_LABEL[p], open: data.open_by_priority[p] ?? 0 }));
+  if (isLoading) return <Spinner />
+  if (error || !data) return <ErrorBanner error={error} onRetry={() => refetch()} />
+
+  const t = data.totals
+  const priorities = (['urgent', 'high', 'medium', 'low'] as Priority[]).map((p) => ({
+    name: PRIORITY[p].label,
+    value: data.open_by_priority[p] ?? 0,
+  }))
+  const outcomes = [
+    { name: 'Pending', value: data.routing_outcomes.pending },
+    { name: 'Matched', value: data.routing_outcomes.matched },
+    { name: 'No match', value: data.routing_outcomes.no_match },
+    { name: 'Superseded', value: data.routing_outcomes.superseded },
+    { name: 'Late result ignored', value: data.routing_outcomes.late_results_ignored },
+  ]
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Operations dashboard</h1>
-          <p className="text-sm text-slate-500">Live counts from the database. Unresolved requests are shown as waiting, not failed.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link to="/tasks/new" className="btn-primary"><PlusCircle className="h-4 w-4" aria-hidden /> New task</Link>
-          <Link to="/routing" className="btn-secondary">Routing operations</Link>
-          <Link to="/tasks" className="btn-secondary">All tasks</Link>
-        </div>
-      </header>
+    <>
+      <PageHeader
+        title="Operations dashboard"
+        description="Live view of task routing and assignment across the team."
+        actions={
+          <>
+            <Link to="/routing"><Button icon={<Radar className="size-4" />}>Routing operations</Button></Link>
+            <Link to="/tasks/new"><Button variant="primary" icon={<Plus className="size-4" />}>Create task</Button></Link>
+          </>
+        }
+      />
 
-      <section aria-label="Key metrics" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {metrics.map((m) => (
-          <div key={m.label} className="card flex items-center gap-4 p-4">
-            <span className={`flex h-10 w-10 items-center justify-center rounded-lg ${m.tone}`}><m.icon className="h-5 w-5" aria-hidden /></span>
-            <div>
-              <p className="text-2xl font-semibold tabular-nums" data-testid={`metric-${m.label.toLowerCase().replace(/[^a-z]+/g, '-')}`}>{m.value}</p>
-              <p className="text-xs text-slate-500">{m.label}</p>
-            </div>
-          </div>
-        ))}
-      </section>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat label="Total tasks" value={t.tasks} icon={<ListTodo className="size-4" />} tone="gray" to="/tasks" />
+        <Stat label="Routing pending" value={t.routing_pending} icon={<Radar className="size-4" />} tone="blue" to="/tasks?status=routing_pending" hint={`${t.draft} drafts not yet submitted`} />
+        <Stat label="Awaiting acceptance" value={t.awaiting_acceptance} icon={<Inbox className="size-4" />} tone="amber" to="/tasks?status=awaiting_acceptance" />
+        <Stat label="Active assignments" value={t.active_assignments} icon={<UserCheck className="size-4" />} tone="green" to="/tasks?status=assigned,in_progress" />
+        <Stat label="Unresolved routing" value={t.unresolved_routing} icon={<Hourglass className="size-4" />} tone="amber" to="/tasks?view=unresolved" hint={`No result after ${data.expected_window_seconds}s`} />
+        <Stat label="Needs intervention" value={t.needs_intervention} icon={<AlertTriangle className="size-4" />} tone="amber" to="/tasks?view=needs_intervention" />
+        <Stat label="Declined or failed" value={t.declined_or_failed} icon={<XCircle className="size-4" />} tone="red" to="/tasks?status=declined,assignment_failed" />
+        <Stat label="Completed" value={t.completed} icon={<CheckCircle2 className="size-4" />} tone="gray" to="/tasks?status=completed" />
+      </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card title="Open tasks by priority" className="lg:col-span-1">
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chart}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={28} />
-                <Tooltip />
-                <Bar dataKey="open" name="Open tasks" fill="#2563eb" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-
-        <Card title="Unresolved routing requests" className="lg:col-span-1">
-          {data.unresolved_requests.length === 0 ? (
-            <Empty title="No unresolved requests" hint="Every routing request has returned or been resolved." />
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader
+            title="Needs attention"
+            description="Declined, failed, or routing longer than the usual window — highest priority first."
+            actions={<Link to="/tasks?view=needs_intervention" className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:underline dark:text-blue-400">View all <ArrowRight className="size-3" /></Link>}
+          />
+          {data.attention.length === 0 ? (
+            <p className="px-5 py-10 text-center text-sm text-slate-500">Nothing needs intervention right now.</p>
           ) : (
-            <ul className="divide-y divide-slate-100">
-              {data.unresolved_requests.map((r) => (
-                <li key={r.task_id} className="flex items-center justify-between gap-3 py-2.5">
-                  <div className="min-w-0">
-                    <Link to={`/tasks/${r.task_id}`} className="block truncate text-sm font-medium text-blue-700 hover:underline">{r.title}</Link>
-                    <p className="text-xs text-slate-500">Still waiting on routing. This may be slow or may not return.</p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <PriorityBadge priority={r.priority} />
-                    <span className="text-sm text-slate-700"><ElapsedTime seconds={r.pending_seconds} /></span>
-                  </div>
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              {data.attention.map((task) => (
+                <li key={task.id}>
+                  <Link to={`/tasks/${task.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <span className="text-xs text-slate-400 tabular-nums">#{task.id}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{task.title}</span>
+                    <PriorityBadge priority={task.priority} />
+                    <TaskStatusBadge status={task.status} />
+                    <span className="w-full text-xs text-slate-500 sm:w-auto">
+                      {task.status === 'routing_pending' && task.routing ? (
+                        <PendingTimer startedAt={task.routing.started_at} verbose />
+                      ) : (
+                        STATUS_REASON[task.status_reason ?? ''] ?? ''
+                      )}
+                    </span>
+                  </Link>
                 </li>
               ))}
             </ul>
           )}
         </Card>
 
-        <Card title="Activity" className="lg:col-span-1">
-          {data.activity.length === 0 ? (
-            <Empty title="No activity yet" hint="Create a task to see routing and assignment events here." />
-          ) : (
-            <ol className="max-h-80 space-y-3 overflow-y-auto pr-1">
-              {data.activity.map((a) => (
-                <li key={a.id} className="flex gap-3">
-                  <Activity className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-                  <div className="min-w-0 text-sm">
-                    <p className="font-medium text-slate-800">{EVENT_LABEL[a.event_type] ?? a.event_type}</p>
-                    <p className="truncate text-slate-600">
-                      <Link to={`/tasks/${a.task_id}`} className="text-blue-700 hover:underline">{a.task_title}</Link>
-                    </p>
-                    <p className="text-xs text-slate-400">{formatDateTime(a.created_at)}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
+        <Card>
+          <CardHeader title="Recent activity" actions={<Link to="/activity" className="text-xs font-medium text-blue-700 hover:underline dark:text-blue-400">Full history</Link>} />
+          <div className="px-5 pt-4">
+            <EventTimeline events={data.recent_events.slice(0, 8)} showTask dense />
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader title="Open tasks by priority" />
+          <div className="px-3 py-3"><BarList data={priorities} label="Open tasks" /></div>
+        </Card>
+        <Card className="lg:col-span-2">
+          <CardHeader title="Routing requests by outcome" description="All attempts. Pending includes requests that are slow and any that may never return — the system cannot tell them apart." />
+          <div className="px-3 py-3"><BarList data={outcomes} label="Routing requests" /></div>
         </Card>
       </div>
-    </div>
-  );
+    </>
+  )
 }

@@ -1,150 +1,123 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { FlaskConical } from 'lucide-react';
-import { useCreateTask, useExpertise, useRoutingAttempts, useSimulationStatus } from '../api/hooks';
-import type { RoutingAttemptRow } from '../api/types';
-import { Card, ElapsedTime, Empty, ErrorState, Loading, Notice } from '../components/ui';
-import { formatDateTime } from '../lib/format';
+import { useState } from 'react'
+import { Link } from 'react-router'
+import clsx from 'clsx'
+import { Radar } from 'lucide-react'
+import { useRoutingAttempts } from '../api/hooks'
+import { Badge, Button, Card, EmptyState, ErrorBanner, PageHeader, Spinner } from '../components/ui/primitives'
+import { PendingTimer, PriorityBadge, RoutingStatusBadge } from '../components/StatusBadges'
+import { formatDateTime, formatDuration } from '../lib/format'
+import { humanize } from '../lib/status'
 
-const TABS = [
-  { key: 'pending', label: 'Pending' },
-  { key: 'resolved', label: 'Resolved' },
-  { key: 'no_match', label: 'No match' },
-  { key: 'superseded', label: 'Superseded' },
-  { key: '', label: 'All' },
-] as const;
+const FILTERS = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'unresolved', label: 'Unresolved (> 20s)' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'superseded', label: 'Superseded' },
+  { value: 'late', label: 'Late results' },
+  { value: '', label: 'All' },
+]
 
 export function RoutingPage() {
-  const [tab, setTab] = useState<string>('pending');
-  const q = useRoutingAttempts(tab);
-  const sim = useSimulationStatus();
-  const showSim = import.meta.env.DEV && sim.data?.controls_enabled;
+  const [filter, setFilter] = useState('pending')
+  const [page, setPage] = useState(1)
+  const { data, isLoading, error, refetch } = useRoutingAttempts(filter, page)
+  const windowSeconds = Number(data?.meta.expected_window_seconds ?? 20)
 
   return (
-    <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold tracking-tight">Routing operations</h1>
-        <p className="text-sm text-slate-500">
-          Pending requests stay open until a result is delivered or an operator intervenes. Nothing is declared failed automatically.
-        </p>
-      </header>
+    <>
+      <PageHeader
+        title="Routing operations"
+        description="Every request sent to the routing engine. Pending requests may be slow or may never return — the console cannot tell which, so nothing is marked failed automatically."
+      />
 
-      <div role="tablist" aria-label="Routing outcome" className="flex flex-wrap gap-2">
-        {TABS.map((t) => (
+      <div className="mb-4 flex flex-wrap gap-1.5" role="tablist" aria-label="Filter routing attempts">
+        {FILTERS.map((f) => (
           <button
-            key={t.key || 'all'}
+            key={f.value}
             role="tab"
-            aria-selected={tab === t.key}
-            className={`rounded-full px-3 py-1.5 text-sm font-medium ${tab === t.key ? 'bg-blue-600 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50'}`}
-            onClick={() => setTab(t.key)}
+            aria-selected={filter === f.value}
+            onClick={() => { setFilter(f.value); setPage(1) }}
+            className={clsx(
+              'rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset',
+              filter === f.value ? 'bg-blue-600 text-white ring-blue-600' : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700',
+            )}
           >
-            {t.label}
+            {f.label}
           </button>
         ))}
       </div>
 
-      {showSim && <SimulationPanel />}
-
-      <Card title={`Requests${q.data ? ` (${q.data.meta.total})` : ''}`}>
-        {q.isPending ? (
-          <Loading label="Loading routing requests…" />
-        ) : q.error ? (
-          <ErrorState error={q.error} onRetry={() => void q.refetch()} />
-        ) : q.data.data.length === 0 ? (
-          <Empty title="No requests in this view" hint="Submitted tasks create a routing request." />
+      <Card>
+        {error ? (
+          <div className="p-4"><ErrorBanner error={error} onRetry={() => refetch()} /></div>
+        ) : isLoading ? (
+          <Spinner />
+        ) : !data || data.data.length === 0 ? (
+          <EmptyState icon={<Radar className="size-6" />} title="No routing requests in this view" />
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <caption className="sr-only">Routing requests</caption>
-              <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900/60">
                 <tr>
-                  <th scope="col" className="px-3 py-2">Request</th>
-                  <th scope="col" className="px-3 py-2">Task</th>
-                  <th scope="col" className="px-3 py-2">Outcome</th>
-                  <th scope="col" className="px-3 py-2">Started</th>
-                  <th scope="col" className="px-3 py-2">Elapsed</th>
-                  <th scope="col" className="px-3 py-2">Notes</th>
-                  <th scope="col" className="px-3 py-2"><span className="sr-only">Actions</span></th>
+                  <th className="px-4 py-2.5">Task</th>
+                  <th className="px-4 py-2.5">Attempt</th>
+                  <th className="px-4 py-2.5">Status</th>
+                  <th className="px-4 py-2.5">Sent</th>
+                  <th className="px-4 py-2.5">Waiting / took</th>
+                  <th className="px-4 py-2.5">Outcome</th>
+                  <th className="px-4 py-2.5" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {q.data.data.map((r) => <AttemptRow key={r.id} r={r} />)}
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {data.data.map((a) => (
+                  <tr key={a.id} className="align-top" data-testid="routing-row">
+                    <td className="max-w-64 px-4 py-3">
+                      <Link to={`/tasks/${a.task_id}`} className="font-medium hover:text-blue-700 hover:underline">#{a.task_id} {a.task?.title}</Link>
+                      <div className="mt-1 flex items-center gap-2">
+                        {a.task && <PriorityBadge priority={a.task.priority} />}
+                        <span className="text-xs text-slate-500">{a.task?.required_expertise}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-600">#{a.attempt_number} · {humanize(a.trigger)}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col items-start gap-1">
+                        <RoutingStatusBadge status={a.status} />
+                        {a.late_result_at && <Badge tone="violet">Late result ignored</Badge>}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-xs whitespace-nowrap text-slate-500 tabular-nums">{formatDateTime(a.started_at)}</td>
+                    <td className="px-4 py-3">
+                      {a.status === 'pending' ? <PendingTimer startedAt={a.started_at} windowSeconds={windowSeconds} verbose /> : <span className="text-xs text-slate-500 tabular-nums">{formatDuration(a.elapsed_seconds)}</span>}
+                    </td>
+                    <td className="max-w-80 px-4 py-3 text-xs text-slate-600 dark:text-slate-400">
+                      {a.status === 'pending' && 'Awaiting result'}
+                      {a.outcome_reason}
+                      {a.status === 'superseded' && <>Superseded: {humanize(a.superseded_reason)}.</>}
+                      {a.late_result_at && (
+                        <span className="block">Late {a.late_outcome === 'matched' ? `match (${a.late_contributor?.name})` : 'no-match'} at {formatDateTime(a.late_result_at)} — ignored.</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {a.status === 'pending' && (
+                        <Link to={`/tasks/${a.task_id}`}><Button size="sm">Intervene</Button></Link>
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         )}
+        {data && data.meta.total_pages > 1 && (
+          <div className="flex items-center justify-between border-t border-slate-200 px-4 py-2.5 text-xs text-slate-500 dark:border-slate-800">
+            <span>Page {data.meta.page} of {data.meta.total_pages}</span>
+            <div className="flex gap-2">
+              <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button>
+              <Button size="sm" variant="ghost" disabled={page >= data.meta.total_pages} onClick={() => setPage(page + 1)}>Next</Button>
+            </div>
+          </div>
+        )}
       </Card>
-    </div>
-  );
-}
-
-function AttemptRow({ r }: { r: RoutingAttemptRow }) {
-  const label = { pending: 'Unresolved', resolved: 'Resolved', no_match: 'No match', superseded: 'Superseded' }[r.status];
-  const tone = { pending: 'text-blue-800 bg-blue-50', resolved: 'text-emerald-800 bg-emerald-50', no_match: 'text-amber-800 bg-amber-50', superseded: 'text-slate-600 bg-slate-100' }[r.status];
-  return (
-    <tr className="align-top">
-      <td className="whitespace-nowrap px-3 py-3 font-mono text-xs text-slate-500">#{r.id}</td>
-      <td className="max-w-xs px-3 py-3"><Link to={`/tasks/${r.task_id}`} className="font-medium text-blue-700 hover:underline">{r.task_title}</Link></td>
-      <td className="px-3 py-3"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}>{label}</span></td>
-      <td className="whitespace-nowrap px-3 py-3 text-slate-600">{formatDateTime(r.started_at)}</td>
-      <td className="whitespace-nowrap px-3 py-3 text-slate-700">{r.status === 'pending' ? <ElapsedTime seconds={r.pending_seconds} /> : '—'}</td>
-      <td className="px-3 py-3 text-slate-600">
-        {r.status === 'pending' && 'Still waiting. May be slow or may never return.'}
-        {r.status === 'resolved' && r.selected_contributor_name && `Matched ${r.selected_contributor_name}`}
-        {r.status === 'superseded' && `Superseded ${formatDateTime(r.superseded_at)}`}
-        {r.status === 'no_match' && 'No eligible contributor'}
-        {r.late_result_at && <span className="ml-1 block text-xs text-amber-800">Late result ignored {formatDateTime(r.late_result_at)}</span>}
-      </td>
-      <td className="px-3 py-3 text-right">
-        <Link to={`/tasks/${r.task_id}${r.status === 'pending' ? '#manual-assignment' : ''}`} className="btn-secondary px-2 py-1 text-xs">
-          {r.status === 'pending' ? 'Intervene' : 'Open task'}
-        </Link>
-      </td>
-    </tr>
-  );
-}
-
-/** Development-only controls that force a routing outcome. Kept apart from operator workflows. */
-function SimulationPanel() {
-  const create = useCreateTask();
-  const expertise = useExpertise();
-  const navigate = useNavigate();
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const cases: Array<{ key: 'success' | 'delayed' | 'never'; label: string; hint: string }> = [
-    { key: 'success', label: 'Successful response', hint: 'Returns after 5 seconds' },
-    { key: 'delayed', label: 'Delayed response', hint: 'Returns after 20 seconds' },
-    { key: 'never', label: 'Never returns', hint: 'Stays unresolved until an operator acts' },
-  ];
-  const launch = async (simulation: 'success' | 'delayed' | 'never') => {
-    if (!expertise.data?.data[0]) return setError('No expertise areas are available.');
-    setError(null);
-    setMessage(null);
-    try {
-      const task = await create.mutateAsync({
-        title: `Demo routing (${simulation})`,
-        description: 'Created from the development simulation panel.',
-        required_expertise_id: expertise.data?.data[0]?.id ?? 0,
-        priority: 'high',
-        due_date: null,
-        submit: true,
-        simulation,
-      });
-      navigate(`/tasks/${task.id}`, { state: { flash: `Demo task created with a forced ${simulation} outcome.` } });
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-  return (
-    <Card title="Development simulation" actions={<span className="inline-flex items-center gap-1 text-xs text-amber-800"><FlaskConical className="h-3.5 w-3.5" aria-hidden /> Dev only</span>}>
-      <p className="mb-3 text-sm text-slate-600">Create a demo task with a forced outcome to reproduce a scenario. Ordinary operator screens never reveal the predetermined outcome.</p>
-      <div className="flex flex-wrap gap-2">
-        {cases.map((c) => (
-          <button key={c.key} className="btn-secondary" title={c.hint} onClick={() => void launch(c.key)} disabled={create.isPending}>{c.label}</button>
-        ))}
-      </div>
-      {message && <Notice kind="info">{message}</Notice>}
-      {error && <Notice kind="error">{error}</Notice>}
-    </Card>
-  );
+    </>
+  )
 }

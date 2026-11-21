@@ -1,154 +1,236 @@
-// TanStack Query hooks. Polling is the reliable fallback when WebSocket updates are unavailable.
-// Routing views poll faster so pending requests and elapsed time stay current.
-import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
-import { api } from './client';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api } from './client'
 import type {
-  Contributor, DashboardSummary, EventRow, Expertise, Page, RoutingAttemptRow, Task, TaskDetail,
-} from './types';
+  Contributor,
+  DashboardSummary,
+  EligibleContributor,
+  ExpertiseArea,
+  Paged,
+  Priority,
+  RoutingAttempt,
+  SimulationAttempt,
+  SimulationOverride,
+  SimulationStatus,
+  Task,
+  TaskDetail,
+  TaskEvent,
+} from './types'
+import { usePollInterval } from '../lib/live'
 
-export const keys = {
-  tasks: (params: object) => ['tasks', params] as const,
-  task: (id: number) => ['task', id] as const,
-  dashboard: ['dashboard'] as const,
-  routing: (status: string) => ['routing', status] as const,
-  events: (params: object) => ['events', params] as const,
-  contributors: ['contributors'] as const,
-  expertise: ['expertise'] as const,
-  simulation: ['simulation'] as const,
-};
+type Data<T> = { data: T }
+type Command = { data: TaskDetail; meta: { changed: boolean } }
 
-const qs = (params: Record<string, string | number | undefined | null>) => {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') p.set(k, String(v));
-  const s = p.toString();
-  return s ? `?${s}` : '';
-};
+export interface TaskFilters {
+  q?: string
+  status?: string
+  priority?: string
+  expertise_id?: string
+  view?: string
+  sort?: string
+  page?: number
+  per_page?: number
+}
 
-export function useTasks(params: { search?: string; status?: string; priority?: string; routing?: string; page: number; per_page?: number }) {
+// ---- queries --------------------------------------------------------------
+
+export function useTasks(filters: TaskFilters) {
+  const refetchInterval = usePollInterval()
   return useQuery({
-    queryKey: keys.tasks(params),
-    queryFn: () => api<Page<Task>>(`/tasks${qs({ ...params, per_page: params.per_page ?? 20 })}`),
-    refetchInterval: 5_000,
-    placeholderData: (prev) => prev,
-  });
+    queryKey: ['tasks', filters],
+    queryFn: () => api.get<Paged<Task>>('/tasks', { ...filters }),
+    placeholderData: keepPreviousData,
+    refetchInterval,
+  })
 }
 
 export function useTask(id: number) {
+  const refetchInterval = usePollInterval()
   return useQuery({
-    queryKey: keys.task(id),
-    queryFn: () => api<TaskDetail>(`/tasks/${id}`),
-    // Poll while routing is pending so elapsed time and resolution appear without a refresh.
-    refetchInterval: (q) => (q.state.data?.routing.state === 'pending' ? 3_000 : 10_000),
-  });
+    queryKey: ['task', id],
+    queryFn: () => api.get<Data<TaskDetail>>(`/tasks/${id}`).then((r) => r.data),
+    refetchInterval,
+  })
+}
+
+export function useTaskHistory(id: number) {
+  return useQuery({
+    queryKey: ['task', id, 'history'],
+    queryFn: () => api.get<Data<TaskEvent[]>>(`/tasks/${id}/history`).then((r) => r.data),
+  })
+}
+
+export function useEligibleContributors(taskId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['task', taskId, 'eligible'],
+    queryFn: () => api.get<Data<EligibleContributor[]>>(`/tasks/${taskId}/eligible_contributors`).then((r) => r.data),
+    enabled,
+  })
 }
 
 export function useDashboard() {
-  return useQuery({ queryKey: keys.dashboard, queryFn: () => api<DashboardSummary>('/dashboard/summary'), refetchInterval: 5_000 });
-}
-
-export function useRoutingAttempts(status: string) {
+  const refetchInterval = usePollInterval()
   return useQuery({
-    queryKey: keys.routing(status),
-    queryFn: () => api<Page<RoutingAttemptRow>>(`/routing-attempts${qs({ status, per_page: 50 })}`),
-    refetchInterval: 3_000,
-  });
+    queryKey: ['dashboard'],
+    queryFn: () => api.get<Data<DashboardSummary>>('/dashboard/summary').then((r) => r.data),
+    refetchInterval,
+  })
 }
 
-export function useEvents(params: { task_id?: number; event_type?: string; page: number }) {
+export function useExpertiseAreas() {
   return useQuery({
-    queryKey: keys.events(params),
-    queryFn: () => api<Page<EventRow>>(`/events${qs({ ...params, per_page: 25 })}`),
-    refetchInterval: 5_000,
-    placeholderData: (prev) => prev,
-  });
+    queryKey: ['expertise-areas'],
+    queryFn: () => api.get<Data<ExpertiseArea[]>>('/expertise_areas').then((r) => r.data),
+    staleTime: 60_000,
+  })
 }
 
-export function useContributors() {
-  return useQuery({ queryKey: keys.contributors, queryFn: () => api<{ data: Contributor[] }>('/contributors'), refetchInterval: 10_000 });
+export function useContributors(params: { q?: string; expertise_id?: string; availability?: string } = {}) {
+  const refetchInterval = usePollInterval()
+  return useQuery({
+    queryKey: ['contributors', params],
+    queryFn: () => api.get<Paged<Contributor>>('/contributors', { ...params, per_page: 100 }),
+    placeholderData: keepPreviousData,
+    refetchInterval,
+  })
 }
 
-export function useExpertise() {
-  return useQuery({ queryKey: keys.expertise, queryFn: () => api<{ data: Expertise[] }>('/expertise-areas'), staleTime: Infinity });
+export function useRoutingAttempts(filter: string, page = 1) {
+  const refetchInterval = usePollInterval()
+  return useQuery({
+    queryKey: ['routing-attempts', filter, page],
+    queryFn: () => api.get<Paged<RoutingAttempt>>('/routing-attempts', { filter, page, per_page: 25 }),
+    placeholderData: keepPreviousData,
+    refetchInterval,
+  })
+}
+
+export function useEvents(params: { task_id?: string; event_type?: string; actor_type?: string; page?: number }) {
+  const refetchInterval = usePollInterval()
+  return useQuery({
+    queryKey: ['events', params],
+    queryFn: () => api.get<Paged<TaskEvent> & { meta: { event_types: string[] } }>('/events', { ...params, per_page: 50 }),
+    placeholderData: keepPreviousData,
+    refetchInterval,
+  })
 }
 
 export function useSimulationStatus() {
-  return useQuery({ queryKey: keys.simulation, queryFn: () => api<{ controls_enabled: boolean }>('/simulation/status'), staleTime: Infinity });
+  return useQuery({
+    queryKey: ['simulation', 'status'],
+    queryFn: () => api.get<Data<SimulationStatus>>('/simulation').then((r) => r.data),
+    staleTime: Infinity,
+    retry: false,
+  })
 }
 
-/** Invalidates everything a task-changing command can affect. */
-function useInvalidateAfterTaskChange() {
-  const qc = useQueryClient();
-  return (taskId?: number) => {
-    const invalidate: QueryKey[] = [['tasks'], keys.dashboard, ['routing'], ['events'], keys.contributors];
-    invalidate.forEach((k) => void qc.invalidateQueries({ queryKey: k }));
-    if (taskId) void qc.invalidateQueries({ queryKey: keys.task(taskId) });
-  };
+export function useSimulationAttempts(enabled: boolean) {
+  const refetchInterval = usePollInterval()
+  return useQuery({
+    queryKey: ['simulation', 'attempts'],
+    queryFn: () => api.get<Data<SimulationAttempt[]>>('/simulation/routing-attempts').then((r) => r.data),
+    enabled,
+    refetchInterval,
+  })
 }
 
-export type CreateTaskBody = {
-  title: string; description: string; required_expertise_id: number; priority: string;
-  due_date: string | null; submit: boolean; simulation?: 'success' | 'delayed' | 'never';
-};
+// ---- mutations ------------------------------------------------------------
+
+/** After any command, refresh everything that could reflect it. */
+function useInvalidateAll() {
+  const qc = useQueryClient()
+  return (task?: TaskDetail) => {
+    if (task) qc.setQueryData(['task', task.id], task)
+    qc.invalidateQueries({ queryKey: ['tasks'] })
+    qc.invalidateQueries({ queryKey: ['task'] })
+    qc.invalidateQueries({ queryKey: ['dashboard'] })
+    qc.invalidateQueries({ queryKey: ['routing-attempts'] })
+    qc.invalidateQueries({ queryKey: ['events'] })
+    qc.invalidateQueries({ queryKey: ['contributors'] })
+    qc.invalidateQueries({ queryKey: ['simulation'] })
+  }
+}
+
+export interface TaskInput {
+  title: string
+  description?: string
+  required_expertise_id: number
+  priority: Priority
+  due_date?: string | null
+}
 
 export function useCreateTask() {
-  const invalidate = useInvalidateAfterTaskChange();
+  const invalidate = useInvalidateAll()
   return useMutation({
-    mutationFn: (body: CreateTaskBody) => api<Task>('/tasks', { method: 'POST', json: body }),
-    onSuccess: (task) => invalidate(task.id),
-  });
+    mutationFn: (vars: { task: TaskInput; submit: boolean; simulation?: SimulationOverride }) =>
+      api.post<Data<TaskDetail>>('/tasks', vars).then((r) => r.data),
+    onSuccess: (task) => invalidate(task),
+  })
 }
 
-export function useRouteTask() {
-  const invalidate = useInvalidateAfterTaskChange();
+export type TaskCommand =
+  | { kind: 'route'; mode?: 'submit' | 'retry' | 'restart'; simulation?: SimulationOverride }
+  | { kind: 'intervene'; contributor_id: number; note?: string }
+  | { kind: 'recover'; recovery_action: 'retry_routing' | 'release'; reason?: string }
+  | { kind: 'start' }
+  | { kind: 'complete' }
+  | { kind: 'cancel'; reason?: string }
+  | { kind: 'accept'; assignment_id: number }
+  | { kind: 'decline'; assignment_id: number; reason?: string }
+  | { kind: 'update'; task: Partial<TaskInput> }
+
+/**
+ * All task commands send the version the operator is looking at; the API
+ * answers 409 if the task changed in the meantime.
+ */
+export function useTaskCommand(taskId: number, version: number) {
+  const invalidate = useInvalidateAll()
   return useMutation({
-    mutationFn: ({ id, expected_version }: { id: number; expected_version?: number }) =>
-      api<{ created: boolean; task: TaskDetail }>(`/tasks/${id}/route`, { method: 'POST', json: { expected_version } }),
-    onSuccess: (_r, v) => invalidate(v.id),
-  });
+    mutationFn: async (cmd: TaskCommand) => {
+      const expected_version = version
+      switch (cmd.kind) {
+        case 'accept':
+          return api.post<Command>(`/assignments/${cmd.assignment_id}/accept`)
+        case 'decline':
+          return api.post<Command>(`/assignments/${cmd.assignment_id}/decline`, { reason: cmd.reason })
+        case 'update':
+          return api.patch<Command>(`/tasks/${taskId}`, { task: cmd.task, expected_version })
+        default: {
+          const { kind, ...body } = cmd
+          return api.post<Command>(`/tasks/${taskId}/${kind}`, { ...body, expected_version })
+        }
+      }
+    },
+    onSuccess: (res) => invalidate(res.data),
+    onError: () => invalidate(),
+  })
 }
 
-export type InterveneBody = { action: 'assign' | 'reroute' | 'fail_assignment' | 'cancel'; contributor_id?: number; reason?: string };
-
-export function useIntervene(taskId: number) {
-  const invalidate = useInvalidateAfterTaskChange();
+export function useDeliverNow() {
+  const invalidate = useInvalidateAll()
   return useMutation({
-    mutationFn: (body: InterveneBody) => api<Task>(`/tasks/${taskId}/intervene`, { method: 'POST', json: body }),
-    onSettled: () => invalidate(taskId),
-  });
+    mutationFn: (attemptId: number) => api.post<Data<RoutingAttempt>>(`/simulation/routing-attempts/${attemptId}/deliver`),
+    onSuccess: () => invalidate(),
+  })
 }
 
-export type RecoverBody = { action: 'retry_routing' | 'choose_contributor'; contributor_id?: number; reason?: string };
-
-export function useRecover(taskId: number) {
-  const invalidate = useInvalidateAfterTaskChange();
-  return useMutation({
-    mutationFn: (body: RecoverBody) => api<Task>(`/tasks/${taskId}/recover`, { method: 'POST', json: body }),
-    onSettled: () => invalidate(taskId),
-  });
+export interface ContributorInput {
+  name: string
+  email: string
+  availability: 'available' | 'unavailable'
+  max_active_assignments: number
+  expertise_area_ids: number[]
 }
 
-export function useAdvanceTask(taskId: number) {
-  const invalidate = useInvalidateAfterTaskChange();
+export function useSaveContributor() {
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: (status: 'in_progress' | 'completed') => api<Task>(`/tasks/${taskId}`, { method: 'PATCH', json: { status } }),
-    onSettled: () => invalidate(taskId),
-  });
-}
-
-export function useAssignmentAction() {
-  const invalidate = useInvalidateAfterTaskChange();
-  return useMutation({
-    mutationFn: ({ id, action, reason }: { id: number; taskId: number; action: 'accept' | 'decline'; reason?: string }) =>
-      api(`/assignments/${id}/${action}`, { method: 'POST', json: action === 'decline' ? { reason } : {} }),
-    onSettled: (_d, _e, v) => invalidate(v.taskId),
-  });
-}
-
-export function useContributorMutation(id?: number) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: Partial<Contributor> & { expertise_ids?: number[] }) =>
-      api<Contributor>(id ? `/contributors/${id}` : '/contributors', { method: id ? 'PATCH' : 'POST', json: body }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.contributors }),
-  });
+    mutationFn: ({ id, contributor }: { id?: number; contributor: ContributorInput }) =>
+      id
+        ? api.patch<Data<Contributor>>(`/contributors/${id}`, { contributor })
+        : api.post<Data<Contributor>>('/contributors', { contributor }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['contributors'] })
+      qc.invalidateQueries({ queryKey: ['expertise-areas'] })
+    },
+  })
 }
