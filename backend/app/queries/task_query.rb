@@ -4,7 +4,7 @@
 #   status       comma-separated task statuses
 #   priority     comma-separated priorities
 #   expertise_id required expertise
-#   view         needs_intervention | unresolved | open
+#   view         needs_intervention | unresolved | overdue_offers | open
 #   sort         created_at | priority | status (prefix "-" for descending; default -created_at)
 class TaskQuery
   SORTS = {
@@ -36,8 +36,15 @@ class TaskQuery
       .where(id: RoutingAttempt.unresolved_beyond_window.select(:task_id))
   end
 
+  # Offers nobody has answered within Assignment::OFFER_RESPONSE_WINDOW_SECONDS.
+  def self.overdue_offers
+    Task.where(status: "awaiting_acceptance").where(id: Assignment.overdue_offers.select(:task_id))
+  end
+
   def self.needs_intervention
-    Task.where(status: Task::RECOVERABLE_STATUSES).or(Task.where(id: unresolved.select(:id)))
+    Task.where(status: Task::RECOVERABLE_STATUSES)
+      .or(Task.where(id: unresolved.select(:id)))
+      .or(Task.where(id: overdue_offers.select(:id)))
   end
 
   private
@@ -50,6 +57,7 @@ class TaskQuery
     case view
     when "needs_intervention" then s.where(id: self.class.needs_intervention.select(:id))
     when "unresolved" then s.where(id: self.class.unresolved.select(:id))
+    when "overdue_offers" then s.where(id: self.class.overdue_offers.select(:id))
     when "open" then s.where.not(status: Task::TERMINAL_STATUSES)
     else s
     end

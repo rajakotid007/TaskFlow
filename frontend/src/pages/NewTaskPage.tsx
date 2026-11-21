@@ -7,17 +7,26 @@ import { useCreateTask, useExpertiseAreas } from '../api/hooks'
 import { ApiError } from '../api/client'
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Textarea } from '../components/ui/primitives'
 import { useToast } from '../components/ui/Toast'
+import { localDateString } from '../lib/format'
 
-export const taskSchema = z.object({
-  title: z.string().trim().min(3, 'Title must be at least 3 characters').max(200, 'Title must be 200 characters or fewer'),
-  description: z.string().max(5000, 'Description must be 5000 characters or fewer').optional(),
-  required_expertise_id: z.string().min(1, 'Choose the expertise this task needs'),
-  priority: z.enum(['low', 'medium', 'high', 'urgent'], { message: 'Choose a priority' }),
-  due_date: z
-    .string()
-    .optional()
-    .refine((v) => !v || v >= new Date().toISOString().slice(0, 10), 'Due date cannot be in the past'),
-})
+/**
+ * Shared by create and edit. "Today" is the operator's local date (not UTC).
+ * When editing, a due date that has since passed may be kept unchanged.
+ */
+export function makeTaskSchema(keepDueDate?: string | null) {
+  return z.object({
+    title: z.string().trim().min(3, 'Title must be at least 3 characters').max(200, 'Title must be 200 characters or fewer'),
+    description: z.string().max(5000, 'Description must be 5000 characters or fewer').optional(),
+    required_expertise_id: z.string().min(1, 'Choose the expertise this task needs'),
+    priority: z.enum(['low', 'medium', 'high', 'urgent'], { message: 'Choose a priority' }),
+    due_date: z
+      .string()
+      .optional()
+      .refine((v) => !v || v === keepDueDate || v >= localDateString(), 'Due date cannot be in the past'),
+  })
+}
+
+export const taskSchema = makeTaskSchema()
 
 export type TaskFormValues = z.infer<typeof taskSchema>
 

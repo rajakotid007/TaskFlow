@@ -10,7 +10,7 @@ class ExpertiseMatchingService < ApplicationService
 
   def call
     candidates = Contributor.with_expertise(@task.required_expertise_id)
-      .includes(:contributor_expertises).order(:id).to_a
+      .includes(:contributor_expertises, :active_assignments).order(:id).to_a
     expertise = @task.required_expertise.name
 
     if candidates.empty?
@@ -36,12 +36,12 @@ class ExpertiseMatchingService < ApplicationService
       )
     end
 
-    loads = Assignment.active.where(contributor_id: eligible.map(&:id)).group(:contributor_id).count
-    chosen = eligible.min_by { |c| [ loads.fetch(c.id, 0), c.id ] }
+    loads = eligible.to_h { |c| [ c.id, c.active_assignments.size ] }
+    chosen = eligible.min_by { |c| [ loads.fetch(c.id), c.id ] }
     Result.new(
       contributor: chosen,
       reason: "#{chosen.name} has #{expertise} expertise and the lowest active load " \
-              "(#{loads.fetch(chosen.id, 0)}) of #{eligible.size} eligible contributor(s)",
+              "(#{loads.fetch(chosen.id)}) of #{eligible.size} eligible contributor(s)",
       considered: candidates.size, rejected: rejected
     )
   end

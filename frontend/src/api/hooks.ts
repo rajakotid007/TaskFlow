@@ -55,7 +55,9 @@ export function useTask(id: number) {
 export function useTaskHistory(id: number) {
   return useQuery({
     queryKey: ['task', id, 'history'],
-    queryFn: () => api.get<Data<TaskEvent[]>>(`/tasks/${id}/history`).then((r) => r.data),
+    queryFn: () =>
+      api.get<Data<TaskEvent[]> & { meta?: { total: number } }>(`/tasks/${id}/history`)
+        .then((r) => ({ events: r.data, total: r.meta?.total ?? r.data.length })),
   })
 }
 
@@ -180,13 +182,15 @@ export type TaskCommand =
 
 /**
  * All task commands send the version the operator is looking at; the API
- * answers 409 if the task changed in the meantime.
+ * answers 409 if the task changed in the meantime. A confirmation dialog
+ * passes the version from when it opened, so a change that arrives while the
+ * operator is reading it is caught instead of silently overridden.
  */
 export function useTaskCommand(taskId: number, version: number) {
   const invalidate = useInvalidateAll()
   return useMutation({
-    mutationFn: async (cmd: TaskCommand) => {
-      const expected_version = version
+    mutationFn: async ({ cmd, seenVersion }: { cmd: TaskCommand; seenVersion?: number }) => {
+      const expected_version = seenVersion ?? version
       switch (cmd.kind) {
         case 'accept':
           return api.post<Command>(`/assignments/${cmd.assignment_id}/accept`)
@@ -226,11 +230,14 @@ export function useSaveContributor() {
   return useMutation({
     mutationFn: ({ id, contributor }: { id?: number; contributor: ContributorInput }) =>
       id
-        ? api.patch<Data<Contributor>>(`/contributors/${id}`, { contributor })
-        : api.post<Data<Contributor>>('/contributors', { contributor }),
+        ? api.patch<Data<Contributor> & { meta?: { warnings?: string[] } }>(`/contributors/${id}`, { contributor })
+        : api.post<Data<Contributor> & { meta?: { warnings?: string[] } }>('/contributors', { contributor }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['contributors'] })
       qc.invalidateQueries({ queryKey: ['expertise-areas'] })
+      // Held tasks show whether their assignee is still available.
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['task'] })
     },
   })
 }

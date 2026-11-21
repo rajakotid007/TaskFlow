@@ -164,4 +164,49 @@ RSpec.describe "Tasks API", type: :request do
       expect(response).to have_http_status(:bad_request)
     end
   end
+
+  describe "malformed requests" do
+    let(:task) { create(:task, required_expertise: ruby) }
+
+    it "returns 400, not 500, when a field that should be an object is a string" do
+      post_json "/api/v1/tasks", task: "oops"
+      expect(response).to have_http_status(:bad_request)
+
+      post_json "/api/v1/tasks", task: { title: "Valid title", required_expertise_id: ruby.id }, submit: true,
+        simulation: "fast"
+      expect(response).to have_http_status(:bad_request)
+      expect(Task.count).to eq(0)
+    end
+
+    it "returns 400 when a field that should be a single value is an object" do
+      post_json "/api/v1/tasks/#{task.id}/intervene", contributor_id: { id: alice.id }
+      expect(response).to have_http_status(:bad_request)
+
+      post_json "/api/v1/tasks/#{task.id}/cancel", expected_version: [ 1 ]
+      expect(response).to have_http_status(:bad_request)
+      expect(task.reload).to be_draft
+    end
+
+    it "rejects an invalid due date on update and keeps the existing one" do
+      task.update!(due_date: Date.current + 5)
+      patch "/api/v1/tasks/#{task.id}", params: { task: { due_date: "2026-13-45" } }, as: :json
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json["error"]["details"]).to include("due_date" => [ "is not a valid date" ])
+      expect(task.reload.due_date).to eq(Date.current + 5)
+    end
+  end
+
+  describe "GET /api/v1/tasks/:id/history" do
+    it "returns events oldest first with the total count" do
+      task = create(:task, required_expertise: ruby)
+      TaskLifecycleService.update(task_id: task.id, attributes: { title: "Renamed once" })
+      TaskLifecycleService.update(task_id: task.id, attributes: { title: "Renamed twice" })
+
+      get "/api/v1/tasks/#{task.id}/history"
+      expect(json["data"].map { |e| e["message"] }.last).to include("Title")
+      expect(json["data"].first["created_at"] <= json["data"].last["created_at"]).to be(true)
+      expect(json["meta"]).to include("total" => 2, "limit" => Api::V1::TasksController::HISTORY_LIMIT)
+    end
+  end
 end

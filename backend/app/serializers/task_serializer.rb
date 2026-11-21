@@ -21,7 +21,10 @@ module TaskSerializer
         id: active.id,
         status: active.status,
         source: active.assignment_source,
-        contributor: { id: active.contributor.id, name: active.contributor.name }
+        offered_at: active.offered_at,
+        overdue: active.overdue?(now),
+        contributor: { id: active.contributor.id, name: active.contributor.name,
+                       available: active.contributor.available? }
       },
       routing: latest && {
         attempt_id: latest.id,
@@ -41,13 +44,16 @@ module TaskSerializer
     summary(task, now: now).merge(
       routing_attempts: task.routing_attempts.sort_by(&:attempt_number).reverse.map { |a| RoutingAttemptSerializer.call(a, now: now) },
       assignments: task.assignments.sort_by(&:id).reverse.map { |a| AssignmentSerializer.call(a) },
-      expected_window_seconds: RoutingAttempt::EXPECTED_WINDOW_SECONDS
+      expected_window_seconds: RoutingAttempt::EXPECTED_WINDOW_SECONDS,
+      offer_response_window_seconds: Assignment::OFFER_RESPONSE_WINDOW_SECONDS,
+      expertise_editable: TaskLifecycleService::EXPERTISE_EDITABLE_IN.include?(task.status)
     )
   end
 
   def needs_intervention?(task, latest, now)
     Task::RECOVERABLE_STATUSES.include?(task.status) ||
-      (task.routing_pending? && latest&.beyond_expected_window?(now))
+      (task.routing_pending? && latest&.beyond_expected_window?(now)) ||
+      task.overdue_offer(now).present?
   end
 
   # What the operator can do right now. The API enforces these rules again;
@@ -59,7 +65,7 @@ module TaskSerializer
     when "routing_pending" then actions += %w[assign_manually restart_routing edit]
     when "awaiting_acceptance" then actions += %w[accept_offer decline_offer assign_manually restart_routing edit]
     when "assigned" then actions += %w[start_work release assign_manually edit]
-    when "in_progress" then actions += %w[complete edit]
+    when "in_progress" then actions += %w[complete release edit]
     when "declined", "assignment_failed" then actions += %w[retry_routing assign_manually edit]
     end
     actions << "cancel" unless task.terminal?

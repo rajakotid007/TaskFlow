@@ -6,6 +6,9 @@ class Contributor < ApplicationRecord
   has_many :assignments, dependent: :restrict_with_error
   has_many :active_assignments, -> { active }, class_name: "Assignment", inverse_of: :contributor
 
+  normalizes :name, with: ->(name) { name.squish }
+  normalizes :email, with: ->(email) { email.strip }
+
   validates :name, presence: true, length: { maximum: 120 }
   validates :email, presence: true, uniqueness: { case_sensitive: false },
     format: { with: URI::MailTo::EMAIL_REGEXP }

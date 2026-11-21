@@ -13,6 +13,15 @@ class AssignmentService < ApplicationService
 
   def accept
     respond(target: "accepted") do |task, assignment, now|
+      contributor = assignment.contributor
+      unless contributor.available?
+        raise Errors::NotEligible.new(contributor,
+          "they are marked unavailable. Update their availability first, or assign someone else")
+      end
+      unless contributor.has_expertise?(task.required_expertise_id)
+        raise Errors::NotEligible.new(contributor, "they no longer have #{task.required_expertise.name} expertise")
+      end
+
       assignment.update!(status: "accepted", accepted_at: now)
       previous = TaskTransitionService.transition!(task, to: "assigned")
       audit(task, event_type: "assignment_accepted", actor_type: "contributor",

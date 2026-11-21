@@ -56,12 +56,24 @@ class ApplicationController < ActionController::API
   end
 
   def expected_version
-    params[:expected_version].presence
+    scalar_param(:expected_version).presence
+  end
+
+  # A top-level value that must be a string or number. A hash or array where a
+  # scalar belongs is a malformed request (400), not a server error.
+  def scalar_param(key, required: false)
+    value = required ? params.require(key) : params[key]
+    if value.is_a?(ActionController::Parameters) || value.is_a?(Array)
+      raise Errors::BadRequest, "#{key} must be a single value"
+    end
+
+    value
   end
 
   def simulation_params
     sim = params[:simulation]
     return nil if sim.blank?
+    raise Errors::BadRequest, "simulation must be an object" unless sim.is_a?(ActionController::Parameters)
 
     sim.permit(:behavior, :delay_seconds).to_h.symbolize_keys
   end

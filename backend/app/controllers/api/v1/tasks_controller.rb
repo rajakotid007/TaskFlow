@@ -29,21 +29,21 @@ module Api
       # mode defaults from the task's state: draft → submit, declined/failed →
       # retry, pending → submit (idempotent no-op). Restart must be explicit.
       def route
-        mode = params[:mode].presence || inferred_route_mode
+        mode = scalar_param(:mode).presence || inferred_route_mode
         result = RoutingRequestService.call(task_id: params[:id], mode: mode, expected_version: expected_version,
           simulation: simulation_params)
         render_task(changed: result.created)
       end
 
       def intervene
-        result = ManualInterventionService.call(task_id: params[:id], contributor_id: params.require(:contributor_id),
-          expected_version: expected_version, note: params[:note])
+        result = ManualInterventionService.call(task_id: params[:id], contributor_id: scalar_param(:contributor_id, required: true),
+          expected_version: expected_version, note: scalar_param(:note))
         render_task(changed: result.changed)
       end
 
       def recover
-        AssignmentRecoveryService.call(task_id: params[:id], action: params.require(:recovery_action),
-          expected_version: expected_version, reason: params[:reason], simulation: simulation_params)
+        AssignmentRecoveryService.call(task_id: params[:id], action: scalar_param(:recovery_action, required: true),
+          expected_version: expected_version, reason: scalar_param(:reason), simulation: simulation_params)
         render_task
       end
 
@@ -58,14 +58,21 @@ module Api
       end
 
       def cancel
-        TaskLifecycleService.cancel(task_id: params[:id], expected_version: expected_version, reason: params[:reason])
+        TaskLifecycleService.cancel(task_id: params[:id], expected_version: expected_version, reason: scalar_param(:reason))
         render_task
       end
 
+      # Oldest first, capped at the most recent HISTORY_LIMIT events: a task
+      # restarted many times can collect a long history. meta.total tells the
+      # client when older events were left out.
+      HISTORY_LIMIT = 500
+
       def history
         task = Task.find(params[:id])
-        events = task.task_events.includes(:task, :contributor).reorder(created_at: :asc, id: :asc)
-        render_data(events.map { |e| TaskEventSerializer.call(e) })
+        total = task.task_events.count
+        events = task.task_events.includes(:task, :contributor)
+          .reorder(created_at: :desc, id: :desc).limit(HISTORY_LIMIT).reverse
+        render_data(events.map { |e| TaskEventSerializer.call(e) }, meta: { total: total, limit: HISTORY_LIMIT })
       end
 
       # Contributors with the task's expertise and whether each could be
@@ -78,14 +85,15 @@ module Api
           reason = ContributorEligibility.reason_ineligible(c, task, mode: :manual)
           ContributorSerializer.call(c).merge(
             eligible: reason.nil?, ineligible_reason: reason,
-            previously_declined: task.declined_contributor_ids.include?(c.id))
+            previously_declined: task.declined_contributor_ids.include?(c.id),
+            previously_released: task.released_contributor_ids.include?(c.id))
         end)
       end
 
       private
 
       def task_params
-        params.require(:task).permit(:title, :description, :required_expertise_id, :priority, :due_date)
+        params.expect(task: %i[title description required_expertise_id priority due_date])
       end
 
       def load_task(id = params[:id])

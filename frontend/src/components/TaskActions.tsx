@@ -1,15 +1,22 @@
 import { useState } from 'react'
-import { Ban, CheckCheck, CheckCircle2, Play, RefreshCw, RotateCcw, Send, Undo2, UserCheck, XCircle } from 'lucide-react'
+import { Ban, CheckCheck, CheckCircle2, Pencil, Play, RefreshCw, RotateCcw, Send, Undo2, UserCheck, XCircle } from 'lucide-react'
 import { Button } from './ui/primitives'
 import { Dialog } from './ui/Dialog'
 import { Field, Textarea } from './ui/primitives'
 import { useToast } from './ui/Toast'
 import { ManualAssignDialog } from './ManualAssignDialog'
+import { EditTaskDialog } from './EditTaskDialog'
 import { useTaskCommand, type TaskCommand } from '../api/hooks'
 import { ApiError } from '../api/client'
-import type { Task, TaskAction } from '../api/types'
+import type { Task, TaskAction, TaskDetail } from '../api/types'
 
-type ReasonDialog = { kind: 'decline' | 'release' | 'cancel' | 'restart' } | null
+// Each dialog remembers the task version (and, for a decline, the offer) as
+// they were when it opened. If the task changes while the operator reads the
+// dialog, the API answers 409 instead of applying an action to a state the
+// operator never saw.
+type ReasonDialog = { kind: 'decline' | 'release' | 'cancel' | 'restart'; seenVersion: number; assignmentId?: number } | null
+
+const isDetail = (task: Task): task is TaskDetail => 'assignments' in task
 
 const SUCCESS: Partial<Record<TaskCommand['kind'], string>> = {
   route: 'Routing request sent',
@@ -20,6 +27,7 @@ const SUCCESS: Partial<Record<TaskCommand['kind'], string>> = {
   cancel: 'Task cancelled',
   accept: 'Assignment accepted',
   decline: 'Assignment declined',
+  update: 'Task updated',
 }
 
 /**
@@ -29,7 +37,8 @@ const SUCCESS: Partial<Record<TaskCommand['kind'], string>> = {
 export function TaskActions({ task, compact = false }: { task: Task; compact?: boolean }) {
   const toast = useToast()
   const command = useTaskCommand(task.id, task.version)
-  const [assignOpen, setAssignOpen] = useState(false)
+  const [assignVersion, setAssignVersion] = useState<number | null>(null)
+  const [editVersion, setEditVersion] = useState<number | null>(null)
   const [reasonDialog, setReasonDialog] = useState<ReasonDialog>(null)
   const [reason, setReason] = useState('')
   const has = (a: TaskAction) => task.available_actions.includes(a)
@@ -37,8 +46,11 @@ export function TaskActions({ task, compact = false }: { task: Task; compact?: b
   const size = compact ? 'sm' : 'md'
   const offerId = task.current_assignment?.status === 'offered' ? task.current_assignment.id : null
 
-  const run = (cmd: TaskCommand, after?: () => void) =>
-    command.mutate(cmd, {
+  const openReason = (kind: NonNullable<ReasonDialog>['kind']) =>
+    setReasonDialog({ kind, seenVersion: task.version, assignmentId: kind === 'decline' ? offerId ?? undefined : undefined })
+
+  const run = (cmd: TaskCommand, after?: () => void, seenVersion?: number) =>
+    command.mutate({ cmd, seenVersion }, {
       onSuccess: (res) => {
         const changed = res.meta?.changed !== false
         toast({
@@ -55,6 +67,9 @@ export function TaskActions({ task, compact = false }: { task: Task; compact?: b
           title: stale ? 'Task changed before your action' : 'Action failed',
           message: stale ? `${err.message} The view has been refreshed.` : err.message,
         })
+        // The dialog described a state that no longer exists; reopening it
+        // shows the current one.
+        if (stale) after?.()
       },
     })
 
@@ -66,18 +81,21 @@ export function TaskActions({ task, compact = false }: { task: Task; compact?: b
   const confirmReason = () => {
     if (!reasonDialog) return
     const r = reason.trim() || undefined
+    const v = reasonDialog.seenVersion
     switch (reasonDialog.kind) {
       case 'decline':
-        if (offerId) run({ kind: 'decline', assignment_id: offerId, reason: r }, closeReason)
+        // Sent even if the offer has since been withdrawn: the API then
+        // explains why it can no longer be declined.
+        if (reasonDialog.assignmentId) run({ kind: 'decline', assignment_id: reasonDialog.assignmentId, reason: r }, closeReason)
         break
       case 'release':
-        run({ kind: 'recover', recovery_action: 'release', reason: r }, closeReason)
+        run({ kind: 'recover', recovery_action: 'release', reason: r }, closeReason, v)
         break
       case 'cancel':
-        run({ kind: 'cancel', reason: r }, closeReason)
+        run({ kind: 'cancel', reason: r }, closeReason, v)
         break
       case 'restart':
-        run({ kind: 'route', mode: 'restart' }, closeReason)
+        run({ kind: 'route', mode: 'restart' }, closeReason, v)
         break
     }
   }
@@ -91,7 +109,10 @@ export function TaskActions({ task, compact = false }: { task: Task; compact?: b
     },
     release: {
       title: 'Release assignment',
-      description: 'Use when the assignment fell through before work began. The contributor is freed and the task can be re-routed or assigned to someone else.',
+      description:
+        task.status === 'in_progress'
+          ? 'Use when the contributor cannot finish (for example, they are ill or left). The contributor is freed and the task can be re-routed — skipping them — or assigned to someone else.'
+          : 'Use when the assignment fell through before work began. The contributor is freed and the task can be re-routed — skipping them — or assigned to someone else.',
       label: 'What happened?',
       cta: 'Release',
     },
@@ -131,7 +152,7 @@ export function TaskActions({ task, compact = false }: { task: Task; compact?: b
           size={size}
           icon={<XCircle className="size-4" />}
           disabled={busy}
-          onClick={() => setReasonDialog({ kind: 'decline' })}
+          onClick={() => openReason('decline')}
           aria-label="Record decline"
           title={compact ? 'Record decline' : undefined}
         >
@@ -143,7 +164,7 @@ export function TaskActions({ task, compact = false }: { task: Task; compact?: b
           size={size}
           icon={<UserCheck className="size-4" />}
           disabled={busy}
-          onClick={() => setAssignOpen(true)}
+          onClick={() => setAssignVersion(task.version)}
           aria-label={task.status === 'assigned' ? 'Reassign' : 'Assign manually'}
           title={compact ? (task.status === 'assigned' ? 'Reassign' : 'Assign manually') : undefined}
         >
@@ -151,7 +172,7 @@ export function TaskActions({ task, compact = false }: { task: Task; compact?: b
         </Button>
       )}
       {!compact && has('restart_routing') && (
-        <Button size={size} icon={<RefreshCw className="size-4" />} disabled={busy} onClick={() => setReasonDialog({ kind: 'restart' })}>
+        <Button size={size} icon={<RefreshCw className="size-4" />} disabled={busy} onClick={() => openReason('restart')}>
           Restart routing
         </Button>
       )}
@@ -161,7 +182,7 @@ export function TaskActions({ task, compact = false }: { task: Task; compact?: b
         </Button>
       )}
       {!compact && has('release') && (
-        <Button size={size} icon={<Undo2 className="size-4" />} disabled={busy} onClick={() => setReasonDialog({ kind: 'release' })}>
+        <Button size={size} icon={<Undo2 className="size-4" />} disabled={busy} onClick={() => openReason('release')}>
           Release assignment
         </Button>
       )}
@@ -170,19 +191,35 @@ export function TaskActions({ task, compact = false }: { task: Task; compact?: b
           Complete
         </Button>
       )}
+      {!compact && has('edit') && isDetail(task) && (
+        <Button size={size} variant="ghost" icon={<Pencil className="size-4" />} disabled={busy} onClick={() => setEditVersion(task.version)}>
+          Edit details
+        </Button>
+      )}
       {!compact && has('cancel') && (
-        <Button size={size} variant="ghost" icon={<Ban className="size-4" />} disabled={busy} onClick={() => setReasonDialog({ kind: 'cancel' })}>
+        <Button size={size} variant="ghost" icon={<Ban className="size-4" />} disabled={busy} onClick={() => openReason('cancel')}>
           Cancel task
         </Button>
       )}
 
-      {assignOpen && (
+      {assignVersion !== null && (
         <ManualAssignDialog
           task={task}
-          open={assignOpen}
-          onClose={() => setAssignOpen(false)}
+          open
+          onClose={() => setAssignVersion(null)}
           submitting={busy}
-          onConfirm={(contributor_id, note) => run({ kind: 'intervene', contributor_id, note: note || undefined }, () => setAssignOpen(false))}
+          onConfirm={(contributor_id, note) =>
+            run({ kind: 'intervene', contributor_id, note: note || undefined }, () => setAssignVersion(null), assignVersion)}
+        />
+      )}
+
+      {editVersion !== null && isDetail(task) && (
+        <EditTaskDialog
+          task={task}
+          onClose={() => { command.reset(); setEditVersion(null) }}
+          submitting={busy}
+          error={command.error}
+          onSave={(changes) => run({ kind: 'update', task: changes }, () => setEditVersion(null), editVersion)}
         />
       )}
 

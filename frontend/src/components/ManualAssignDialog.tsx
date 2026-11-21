@@ -79,6 +79,7 @@ export function ManualAssignDialog({ task, open, onClose, onConfirm, submitting 
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{c.name}</span>
                 {c.previously_declined && <Badge tone="red">Declined before</Badge>}
+                {c.previously_released && <Badge tone="amber">Released before</Badge>}
                 {task.current_assignment?.contributor.id === c.id && <Badge tone="green">Current</Badge>}
               </div>
               <p className="text-xs text-slate-500">

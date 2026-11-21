@@ -38,7 +38,20 @@ function Explanation({ task }: { task: TaskDetail }) {
       <>Routing request #{pending.attempt_number} was sent {formatDuration(elapsed)} ago. Results usually arrive within 5–{task.expected_window_seconds}s. You can intervene at any time.</>
     )
   } else if (task.status === 'awaiting_acceptance' && a) {
-    body = <>The routing engine proposed <strong>{a.contributor.name}</strong>{latest?.outcome_reason ? ` (${latest.outcome_reason})` : ''}. Record their response, or assign someone else.</>
+    const waited = a.offered_at ? secondsSince(a.offered_at, now) : 0
+    const window = task.offer_response_window_seconds
+    if (window && waited > window) {
+      tone = 'amber'
+      body = (
+        <>
+          The offer to <strong>{a.contributor.name}</strong> has had no answer for <strong>{formatDuration(waited)}</strong>, longer
+          than the usual {formatDuration(window)}. It has not expired — they can still respond — but you may want to follow up,
+          assign someone else, or restart routing.
+        </>
+      )
+    } else {
+      body = <>The routing engine proposed <strong>{a.contributor.name}</strong>{latest?.outcome_reason ? ` (${latest.outcome_reason})` : ''}. Record their response, or assign someone else.</>
+    }
   } else if (task.status === 'declined' && lastDecline) {
     body = <><strong>{lastDecline.contributor.name}</strong> declined: “{lastDecline.decline_reason}”. Retry routing (they will be skipped) or choose a contributor manually.</>
   } else if (task.status === 'assignment_failed') {
@@ -50,6 +63,16 @@ function Explanation({ task }: { task: TaskDetail }) {
       )
   } else if ((task.status === 'assigned' || task.status === 'in_progress') && a) {
     body = <><strong>{a.contributor.name}</strong> {task.status === 'in_progress' ? 'is working on this task' : 'owns this task'} ({a.source === 'manual' ? 'assigned manually by an operator' : 'accepted a routing offer'}).</>
+  }
+
+  if (a && a.contributor.available === false && !['completed', 'cancelled'].includes(task.status)) {
+    tone = 'amber'
+    body = (
+      <>
+        {body} <strong>{a.contributor.name} is now marked unavailable.</strong>{' '}
+        {task.status === 'awaiting_acceptance' ? 'Their acceptance cannot be recorded until they are available again.' : 'Consider releasing or reassigning the task.'}
+      </>
+    )
   }
 
   const cls = {
@@ -189,7 +212,10 @@ export function TaskDetailPage() {
         <Card className="lg:col-span-2">
           <CardHeader title="History" description="Every transition, in order." />
           <div className="px-5 pt-4" data-testid="task-history">
-            {history ? <EventTimeline events={history} /> : <Spinner />}
+            {history && history.total > history.events.length && (
+              <p className="mb-3 text-xs text-slate-500">Showing the latest {history.events.length} of {history.total} events.</p>
+            )}
+            {history ? <EventTimeline events={history.events} /> : <Spinner />}
           </div>
         </Card>
       </div>

@@ -4,6 +4,7 @@ import { Badge } from './ui/primitives'
 import type { Priority, RoutingStatus, RoutingSummary, TaskStatus } from '../api/types'
 import { PRIORITY, ROUTING_STATUS, TASK_STATUS } from '../lib/status'
 import { formatDuration, secondsSince } from '../lib/format'
+import { serverNow } from '../api/client'
 
 export function TaskStatusBadge({ status }: { status: TaskStatus }) {
   const meta = TASK_STATUS[status]
@@ -26,9 +27,9 @@ export function PriorityBadge({ priority }: { priority: Priority }) {
 
 /** Re-renders every `intervalMs` so elapsed timers tick without refetching. */
 export function useNow(intervalMs = 1000) {
-  const [now, setNow] = useState(() => Date.now())
+  const [now, setNow] = useState(() => serverNow())
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), intervalMs)
+    const id = setInterval(() => setNow(serverNow()), intervalMs)
     return () => clearInterval(id)
   }, [intervalMs])
   return now
