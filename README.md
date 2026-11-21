@@ -777,6 +777,44 @@ Playwright's Chromium instead, run `npx playwright install chromium` and set
 
 Detailed results and the coverage map are in [TESTING.md](TESTING.md).
 
+### Test reports
+
+Screenshots of the reports from a local run on 21 Nov 2026, against the real
+Docker stack. Every suite passed.
+
+| Suite | Result |
+|---|---|
+| End-to-end (Playwright, Edge) | **5 passed**, 0 failed, 0 flaky (2.2 min) |
+| Backend (RSpec) | **121 examples, 0 failures** |
+| Frontend (Vitest) | **24 passed** |
+| Backend line coverage | **92.8 %** (786 / 847 lines) |
+| Frontend line coverage | **59.6 %** (355 / 596 lines) |
+| RuboCop · ESLint · `tsc` · `vite build` | no offenses, no errors, build succeeds |
+
+**End-to-end: Playwright HTML report**
+
+![Playwright end-to-end report: 5 passed](docs/test-reports/01-playwright-e2e-report.png)
+
+**Backend: RSpec HTML report**
+
+![RSpec report: 121 examples, 0 failures](docs/test-reports/02-rspec-backend-report.png)
+
+**Frontend: Vitest unit and component tests**
+
+![Vitest run: 24 tests passed](docs/test-reports/03-vitest-frontend-tests.png)
+
+**Frontend coverage (Vitest, v8)**
+
+![Frontend coverage report](docs/test-reports/04-frontend-coverage-report.png)
+
+**Backend line coverage**
+
+![Backend line coverage: 92.8%](docs/test-reports/05-backend-coverage.png)
+
+**Code quality: lint, type check and production build**
+
+![RuboCop, ESLint, tsc and vite build results](docs/test-reports/06-code-quality-checks.png)
+
 ---
 
 ## Troubleshooting
