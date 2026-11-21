@@ -18,7 +18,7 @@ npm run e2e           # Playwright (needs: docker compose up -d, SIMULATION_CONT
 
 ## Coverage summary
 
-### Backend — RSpec (103 examples)
+### Backend — RSpec (121 examples)
 
 | File | What it covers |
 |---|---|
@@ -27,8 +27,9 @@ npm run e2e           # Playwright (needs: docker compose up -d, SIMULATION_CONT
 | `spec/services/routing_simulation_spec.rb` | Over 5 000 samples: never-return ratio within 0.20 ± 0.02; all delays within 5–20 s and covering the range; forced plans; validation; refused when controls are disabled. |
 | `spec/services/expertise_matching_service_spec.rb` | Expertise filter, least-loaded choice with deterministic tie-break, unavailable/at-capacity/declined exclusions with reasons. |
 | `spec/concurrency/routing_concurrency_spec.rb` | Real threads on separate DB connections released by a latch: manual intervention vs engine result (×10), two operators with the same version, 5 concurrent submissions, 4 tasks racing for one contributor with capacity 1, accept vs reassignment (×10), and the DB indexes rejecting a second active assignment / second pending attempt without any application locks. |
-| `spec/requests/tasks_api_spec.rb` | Create draft / create+submit / validation errors / mass-assignment protection / 400; filtering and pagination; simulated outcome never in operator responses; idempotent route; intervene + late result via HTTP; 409 stale version; 422 invalid transition and ineligible contributor; eligible contributor list; accept idempotency; decline → recover. |
-| `spec/requests/operations_api_spec.rb` | Dashboard counts from real data (incl. unresolved after time travel); contributor create/validate/update; unresolved routing filter; events filter; simulation controls refused when disabled; deliver-now; 404 format. |
+| `spec/requests/tasks_api_spec.rb` | Create draft / create+submit / validation errors / mass-assignment protection / 400; filtering and pagination; simulated outcome never in operator responses; idempotent route; intervene + late result via HTTP; 409 stale version; 422 invalid transition and ineligible contributor; eligible contributor list; accept idempotency; decline → recover; malformed bodies (a string where an object belongs, an object where a value belongs) return 400 rather than 500; an invalid due date on update is rejected and the old one kept; history order, total and cap. |
+| `spec/requests/operations_api_spec.rb` | Dashboard counts from real data (incl. unresolved after time travel); contributor create/validate/update; warnings when a contributor holding work is made unavailable; trimmed, case-insensitive expertise names; unresolved routing filter; events filter; simulation controls refused when disabled; deliver-now; 404 format. |
+| `spec/services/edge_cases_spec.rb` | Retry after a release skips the released contributor (and explains when nobody is left); the operator can still choose them manually; releasing in-progress work; unanswered offers flagged after the response window without expiring; accept refused when the contributor became unavailable or lost the expertise; due date must be a real date and not in the past (today accepted in every time zone, an already-passed date kept on other edits); titles trimmed, minimum 3 characters. |
 
 Use-case mapping to the brief's 15 backend scenarios: creation/validation (tasks
 API), matching (matching spec), successful routing, 5–20 s delay (simulation
@@ -37,7 +38,7 @@ manual intervention, late response, duplicate-assignment prevention,
 concurrent attempts, invalid transitions, audit history, idempotency — all
 present in the files above.
 
-### Frontend — Vitest + Testing Library (18 tests)
+### Frontend — Vitest + Testing Library (24 tests)
 
 * `src/test/pages.test.tsx` — dashboard renders API metrics; dashboard API error
   with retry; create-task validation errors (nothing sent); create & submit
@@ -49,6 +50,13 @@ present in the files above.
   changed before your action".
 * `src/test/client.test.ts` — API error parsing (field errors), unreachable
   backend, non-JSON error pages, duration formatting.
+* `src/test/edge-cases.test.tsx` — timers follow the server clock (Date
+  header), not the browser's; due date compared with the local date, not
+  UTC; a confirmation dialog sends the version from when it opened, so a
+  change that arrives meanwhile gets a 409 and closes the dialog; unanswered
+  offer flagged after the response window; unavailable assignee warning with
+  release offered for in-progress work; edit dialog sends only changed fields
+  and locks expertise when it cannot change.
 
 ### End-to-end — Playwright (5 scenarios, real stack)
 
@@ -74,11 +82,11 @@ forced simulation plans for determinism; delays are real.
 
 | Suite | Result |
 |---|---|
-| RSpec | **103 examples, 0 failures** (≈11 s) |
-| RuboCop | 71 files, **no offenses** |
-| Vitest | **18 passed** |
+| RSpec | **121 examples, 0 failures** (≈12 s) — re-run 2026-11-21 after the edge-case fixes |
+| RuboCop | 72 files, **no offenses** |
+| Vitest | **24 passed** |
 | ESLint / `tsc -b` | clean |
-| Playwright (Edge, 2 workers) | **5 passed** on two consecutive runs (54 s, 44 s) |
+| Playwright (Edge, 2 workers) | **5 passed** (54 s, 44 s; then 1.2 min after the edge-case fixes) |
 
 Manual checks against the running stack (curl):
 

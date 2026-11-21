@@ -46,6 +46,28 @@ RSpec.describe "Operations APIs", type: :request do
     end
   end
 
+  describe "contributor changes that affect held work" do
+    def json = response.parsed_body
+
+    it "warns when a contributor holding work is made unavailable" do
+      area = create(:expertise_area, name: "Elixir")
+      dana = create(:contributor, name: "Dana", expertise: [ area ])
+      task = create(:task, required_expertise: area)
+      ManualInterventionService.call(task_id: task.id, contributor_id: dana.id)
+
+      patch "/api/v1/contributors/#{dana.id}", params: { contributor: { availability: "unavailable" } }, as: :json
+
+      expect(response).to have_http_status(:ok)
+      expect(json["meta"]["warnings"]).to eq([ "Dana is unavailable but still holds ##{task.id}" ])
+    end
+
+    it "trims names so near-duplicate expertise areas are refused" do
+      create(:expertise_area, name: "Ruby")
+      post "/api/v1/expertise_areas", params: { expertise_area: { name: "  ruby " } }, as: :json
+      expect(response).to have_http_status(:unprocessable_entity)
+    end
+  end
+
   describe "routing attempts" do
     it "filters unresolved attempts" do
       create(:contributor, expertise: [ ruby ])

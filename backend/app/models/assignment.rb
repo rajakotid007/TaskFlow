@@ -12,7 +12,12 @@ class Assignment < ApplicationRecord
   validates :status, inclusion: { in: STATUSES }
   validates :assignment_source, inclusion: { in: SOURCES }
 
+  # Contributors answer offers on human time, not engine time. Past this an
+  # unanswered offer needs the operator's attention; it is never auto-expired.
+  OFFER_RESPONSE_WINDOW_SECONDS = Integer(ENV.fetch("OFFER_RESPONSE_WINDOW_SECONDS", 30.minutes.to_i))
+
   scope :active, -> { where(status: ACTIVE_STATUSES) }
+  scope :overdue_offers, -> { where(status: "offered", offered_at: ...OFFER_RESPONSE_WINDOW_SECONDS.seconds.ago) }
 
   STATUSES.each do |s|
     define_method(:"#{s}?") { status == s }
@@ -20,5 +25,13 @@ class Assignment < ApplicationRecord
 
   def active?
     ACTIVE_STATUSES.include?(status)
+  end
+
+  def released?
+    withdrawn? && end_reason == "released"
+  end
+
+  def overdue?(now = Time.current)
+    offered? && offered_at.present? && (now - offered_at) > OFFER_RESPONSE_WINDOW_SECONDS
   end
 end

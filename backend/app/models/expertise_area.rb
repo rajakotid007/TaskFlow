@@ -3,5 +3,7 @@ class ExpertiseArea < ApplicationRecord
   has_many :contributors, through: :contributor_expertises
   has_many :tasks, foreign_key: :required_expertise_id, inverse_of: :required_expertise, dependent: :restrict_with_error
 
+  normalizes :name, with: ->(name) { name.squish }
+
   validates :name, presence: true, uniqueness: { case_sensitive: false }, length: { maximum: 60 }
 end

@@ -51,6 +51,29 @@ function cableUrl() {
 let consumer: Consumer | null = null
 let subscription: Subscription | null = null
 
+// One operator action can emit several events (e.g. superseded + withdrawn +
+// manual_assignment). Refetch once per burst rather than once per event.
+const BURST_MS = 150
+let pendingTaskIds = new Set<number>()
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleRefresh(queryClient: QueryClient, taskId: number) {
+  pendingTaskIds.add(taskId)
+  if (flushTimer) return
+  flushTimer = setTimeout(() => {
+    const ids = pendingTaskIds
+    pendingTaskIds = new Set()
+    flushTimer = null
+    queryClient.invalidateQueries({ queryKey: ['tasks'] })
+    ids.forEach((id) => queryClient.invalidateQueries({ queryKey: ['task', id] }))
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    queryClient.invalidateQueries({ queryKey: ['routing-attempts'] })
+    queryClient.invalidateQueries({ queryKey: ['events'] })
+    queryClient.invalidateQueries({ queryKey: ['contributors'] })
+    queryClient.invalidateQueries({ queryKey: ['simulation'] })
+  }, BURST_MS)
+}
+
 export function connectLive(queryClient: QueryClient, onMessage?: (msg: LiveMessage) => void) {
   if (subscription) return () => {}
   consumer = createConsumer(cableUrl())
@@ -63,17 +86,14 @@ export function connectLive(queryClient: QueryClient, onMessage?: (msg: LiveMess
     disconnected: () => setStatus('disconnected'),
     rejected: () => setStatus('disconnected'),
     received: (msg: LiveMessage) => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] })
-      queryClient.invalidateQueries({ queryKey: ['task', msg.task_id] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['routing-attempts'] })
-      queryClient.invalidateQueries({ queryKey: ['events'] })
-      queryClient.invalidateQueries({ queryKey: ['contributors'] })
-      queryClient.invalidateQueries({ queryKey: ['simulation'] })
+      scheduleRefresh(queryClient, msg.task_id)
       onMessage?.(msg)
     },
   })
   return () => {
+    if (flushTimer) clearTimeout(flushTimer)
+    flushTimer = null
+    pendingTaskIds = new Set()
     subscription?.unsubscribe()
     consumer?.disconnect()
     subscription = null

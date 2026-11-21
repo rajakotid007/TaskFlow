@@ -14,6 +14,7 @@ const VIEWS = [
   { value: 'open', label: 'Open' },
   { value: 'needs_intervention', label: 'Needs intervention' },
   { value: 'unresolved', label: 'Unresolved routing' },
+  { value: 'overdue_offers', label: 'Unanswered offers' },
 ]
 
 function PendingDuration({ task }: { task: Task }) {

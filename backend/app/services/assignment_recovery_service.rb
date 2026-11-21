@@ -2,8 +2,9 @@
 #
 #   retry_routing — declined / assignment_failed → new routing request
 #                   (contributors who declined this task are excluded)
-#   release       — assigned (work not started) → assignment_failed, freeing
-#                   the contributor; the task can then be re-routed or
+#   release       — assigned or in progress → assignment_failed, freeing the
+#                   contributor (e.g. they fell sick or abandoned the work);
+#                   the task can then be re-routed, which skips them, or
 #                   assigned manually
 #
 # Choosing a specific contributor is ManualInterventionService.
@@ -36,16 +37,19 @@ class AssignmentRecoveryService < ApplicationService
       next task if task.assignment_failed? && task.status_reason == "assignment_released"
 
       check_version!(task, @expected_version)
-      raise Errors::InvalidTransition.new(from: task.status, action: "release the assignment") unless task.assigned?
+      unless task.assigned? || task.in_progress?
+        raise Errors::InvalidTransition.new(from: task.status, action: "release the assignment")
+      end
 
       reason = @reason || "Assignment could not proceed"
+      stage = task.in_progress? ? "after work had started" : "before work began"
       assignment = withdraw_active_assignment!(task, reason: "released",
         explanation: reason, event_type: "assignment_released")
       previous = TaskTransitionService.transition!(task, to: "assignment_failed", reason: "assignment_released")
       audit(task, event_type: "recovery_initiated", assignment: assignment, previous_state: previous,
         new_state: task.status,
-        message: "Assignment released before work began (#{reason}). Task needs re-routing or manual assignment.",
-        metadata: { reason: reason })
+        message: "Assignment released #{stage} (#{reason}). Task needs re-routing or manual assignment.",
+        metadata: { reason: reason, work_started: previous == "in_progress" })
       task
     end
   end

@@ -10,7 +10,7 @@ module Api
       end
 
       def decline
-        result = AssignmentService.decline(assignment_id: params[:id], reason: params[:reason])
+        result = AssignmentService.decline(assignment_id: params[:id], reason: scalar_param(:reason))
         render_result(result)
       end
 

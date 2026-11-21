@@ -6,7 +6,7 @@ class TaskTransitionService
     "routing_pending" => %w[routing_pending awaiting_acceptance assignment_failed assigned cancelled],
     "awaiting_acceptance" => %w[routing_pending assigned declined cancelled],
     "assigned" => %w[assigned in_progress assignment_failed cancelled],
-    "in_progress" => %w[completed cancelled],
+    "in_progress" => %w[completed assignment_failed cancelled],
     "declined" => %w[routing_pending assigned cancelled],
     "assignment_failed" => %w[routing_pending assigned cancelled],
     "completed" => [],

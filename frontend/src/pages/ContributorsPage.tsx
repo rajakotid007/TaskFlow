@@ -42,8 +42,13 @@ function ContributorDialog({ contributor, onClose }: { contributor: Contributor 
     save.mutate(
       { id: existing?.id, contributor: { ...v, expertise_area_ids: v.expertise_area_ids.map(Number) } },
       {
-        onSuccess: () => {
-          toast({ kind: 'success', title: existing ? 'Contributor updated' : 'Contributor added' })
+        onSuccess: (res) => {
+          const warnings = res.meta?.warnings ?? []
+          toast(
+            warnings.length > 0
+              ? { kind: 'info', title: 'Contributor updated — check their tasks', message: warnings.join('. ') + '. Reassign if needed.' }
+              : { kind: 'success', title: existing ? 'Contributor updated' : 'Contributor added' },
+          )
           onClose()
         },
         onError: (err) => {

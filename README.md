@@ -67,9 +67,12 @@ The repository contains **two implementations** of the same brief:
   cannot be dispatched (for example, Redis is down), the task isn't created
   either, so nothing is left half-submitted.
 - **Form validation** in the browser (title at least 3 characters, expertise
-  required, due date not in the past) and again on the server. Server errors
-  appear next to the matching fields.
-- **Edit** title, description, priority and due date on any non-final task. The
+  required, due date not in the past in the operator's own time zone) and again
+  on the server, which also rejects dates that don't exist (e.g. `2026-13-45`)
+  instead of silently clearing them. Server errors appear next to the matching
+  fields. Malformed request bodies get a `400`, never a server error.
+- **Edit details** (title, description, priority, due date) on any non-final
+  task from the task page; only changed fields are sent. The
   required expertise can change only while the task is `draft`, `declined` or
   `assignment_failed`, so an in-flight request or assignment is never
   invalidated.
@@ -79,7 +82,8 @@ The repository contains **two implementations** of the same brief:
 ### 2. Automatic, expertise-based routing
 - Routing considers contributors who **have the required expertise**, are
   **available**, are **below their capacity** (`max_active_assignments`,
-  default 3), and **have not already declined this task**.
+  default 3), and **have not already declined, or been released from, this
+  task**.
 - It picks the **least-loaded** eligible contributor, breaking ties by lowest
   id so results are deterministic. Every decision is recorded with a
   plain-English reason, e.g. *"Priya Raman has Ruby expertise and the lowest
@@ -112,6 +116,12 @@ The repository contains **two implementations** of the same brief:
   browser refresh because all state lives in PostgreSQL.
 
 ### 5. Human intervention
+An offer has no deadline either. If nobody answers within
+`OFFER_RESPONSE_WINDOW_SECONDS` (default 30 minutes), the task turns amber and
+joins *Needs intervention* (and the *Unanswered offers* view), but the offer
+stays open. Accepting requires the contributor to still be available and to
+still have the expertise.
+
 At any point before work starts, the operator can:
 - **Assign manually:** choose from eligible contributors. Each candidate shows
   their load, and ineligible ones are greyed out with the reason. The operator
@@ -125,6 +135,11 @@ At any point before work starts, the operator can:
 
 A manual assignment takes effect immediately: the operator's choice counts as
 agreed.
+
+Every confirmation dialog sends the task version from **when it opened**. If the
+task changes while the operator is reading it (for example, the contributor
+accepts while the *Cancel task* dialog is open), the API answers `409`, the
+dialog closes and the operator sees the new state.
 
 ### 6. Late results never win
 If a superseded request answers later, TaskFlow:
@@ -142,8 +157,13 @@ If a superseded request answers later, TaskFlow:
   before"*.
 - **After routing finds nobody:** retry once availability changes, or assign
   manually.
-- **When an assignment falls through before work begins:** **release** it with a
-  reason. The contributor is freed and the task becomes recoverable.
+- **When an assignment falls through** — before work begins or after it
+  started (the contributor is ill, left, or blocked) — **release** it with a
+  reason. The contributor is freed, the task becomes recoverable, and retry
+  routing skips them (a manual pick shows them as *"Released before"*).
+- **When a contributor changes** (made unavailable, expertise removed, capacity
+  lowered), work they already hold is left alone, but the save lists the
+  affected tasks and those tasks warn that the assignee is unavailable.
 - Earlier attempts and assignments are **never deleted**. The task page lists
   every routing attempt and every assignment, newest first.
 
@@ -264,7 +284,7 @@ different things, so each has its own status.
 | `in_progress` | Work has started |
 | `completed` | Finished (final) |
 | `declined` | The proposed contributor declined; needs recovery |
-| `assignment_failed` | The engine found nobody (`status_reason: no_eligible_contributor`), or the assignment was released before work began (`assignment_released`); needs recovery |
+| `assignment_failed` | The engine found nobody (`status_reason: no_eligible_contributor`), or the assignment was released (`assignment_released`); needs recovery |
 | `cancelled` | Cancelled by the operator (final) |
 
 **Allowed task transitions** (enforced by `TaskTransitionService`; anything else
@@ -276,7 +296,7 @@ is rejected with `invalid_transition`):
 | `routing_pending` | `routing_pending` (restart), `awaiting_acceptance`, `assignment_failed`, `assigned`, `cancelled` |
 | `awaiting_acceptance` | `routing_pending` (restart), `assigned`, `declined`, `cancelled` |
 | `assigned` | `assigned` (reassign), `in_progress`, `assignment_failed` (release), `cancelled` |
-| `in_progress` | `completed`, `cancelled` |
+| `in_progress` | `completed`, `assignment_failed` (release), `cancelled` |
 | `declined`, `assignment_failed` | `routing_pending` (retry), `assigned`, `cancelled` |
 | `completed`, `cancelled` | — (final) |
 
@@ -609,8 +629,9 @@ immediately, even one planned never to answer. Tasks created on the normal
 4. Both the declined and the new assignment remain listed, and the history shows
    the whole story.
 
-There's also **Release assignment** on an assigned task that hasn't started. Use
-it when an assignment falls through before work begins.
+There's also **Release assignment** on an assigned or in-progress task. Use it
+when an assignment falls through; retrying afterwards skips the released
+contributor.
 
 ---
 
@@ -719,9 +740,9 @@ a cue to refetch that task, never a data payload.
 
 | Suite | Command | What it covers |
 |---|---|---|
-| Backend (RSpec, **103 examples**) | `docker compose run --rm api bundle exec rspec` | All four scenarios at service level; every forbidden state transition; the 20 % / 5–20 s simulation statistics; matching and eligibility; HTTP API behaviour (validation, 404/409/422/403, idempotency, never exposing the simulation plan); **real multi-threaded race tests** |
+| Backend (RSpec, **121 examples**) | `docker compose run --rm api bundle exec rspec` | All four scenarios at service level; every forbidden state transition; the 20 % / 5–20 s simulation statistics; matching and eligibility; HTTP API behaviour (validation, 404/409/422/403, idempotency, never exposing the simulation plan); **real multi-threaded race tests** |
 | Backend lint | `docker compose run --rm api bundle exec rubocop` | Rails Omakase style |
-| Frontend (Vitest, **18 tests**) | `cd frontend && npm test` | Dashboard, create-task validation and submission, filters, pending timers, intervention dialog, retry after decline, 409 handling, API error parsing |
+| Frontend (Vitest, **24 tests**) | `cd frontend && npm test` | Dashboard, create-task validation and submission, filters, pending timers, intervention dialog, retry after decline, 409 handling, API error parsing, server-clock timers, local-date due dates, dialog version pinning, unanswered offers, edit dialog |
 | Frontend lint and types | `npm run lint && npm run typecheck` | ESLint; strict TypeScript |
 | End-to-end (Playwright, **5 scenarios**) | `cd frontend && npm run e2e` | Routine assignment, unresolved routing, intervention with a late result, recovery after decline, retry skipping the decliner, all in a real browser against the real stack |
 

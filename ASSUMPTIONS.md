@@ -79,6 +79,38 @@ Product and engineering decisions made where the brief left room, and why.
 | **Failed** | The engine *answered* that nobody is eligible, or an assignment was released before work. | attempt `no_match`; task `assignment_failed` with `status_reason` |
 | **Superseded** | An operator replaced the request (manual assignment, restart, cancel). A later answer is recorded as `late_result_at/late_outcome` and ignored. | attempt `superseded` |
 
+## Edge-case rules
+
+* **Routing never re-offers a task to someone it already fell through with.**
+  Contributors who declined it, and those whose assignment was released, are
+  skipped by retry routing. An operator may still pick them manually; the
+  dialog flags them ("Declined before" / "Released before").
+* **Unanswered offers are flagged, not expired.** Contributors answer on human
+  time, so an offer with no response for `OFFER_RESPONSE_WINDOW_SECONDS`
+  (default 30 minutes) counts as needing intervention, and the task explains
+  it in amber. The offer stays open until someone acts.
+* **Releasing works before and after work starts.** An in-progress task can be
+  released (contributor ill, left, blocked); it becomes assignment failed and
+  can be re-routed or reassigned.
+* **Accepting needs an available contributor with the expertise.** Changing a
+  contributor never changes work they already hold. Instead the save returns
+  warnings listing affected tasks, and those tasks show the assignee as
+  unavailable.
+* **Due dates are real dates, not in the past.** Because the operator's time
+  zone is unknown, the API accepts any date that is today somewhere (from
+  UTC−12). The form uses the browser's local date. A due date that has since
+  passed is kept when other fields are edited.
+* **Elapsed times use the server clock.** The console estimates the server
+  clock from each response's `Date` header, so a wrong PC clock does not make
+  requests look overdue or fresh.
+* **Dialogs remember what the operator saw.** A confirmation sends the task
+  version from when the dialog opened; if the task changed meanwhile the API
+  answers 409. `expected_version` stays optional for API clients that prefer
+  idempotent retries.
+* **Lost engine jobs look like slow ones, by design.** If the worker is killed
+  hard mid-delivery, the request stays pending and is surfaced as unresolved —
+  the same path as a request that never returns.
+
 ## Intentional simplifications
 
 * No auth, multi-tenant support, notifications or email.

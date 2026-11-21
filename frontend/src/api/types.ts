@@ -60,7 +60,10 @@ export interface Task {
     id: number
     status: AssignmentStatus
     source: 'routing' | 'manual'
-    contributor: Ref
+    offered_at?: string | null
+    /** An offer unanswered for longer than the response window. */
+    overdue?: boolean
+    contributor: Ref & { available?: boolean }
   } | null
   routing: RoutingSummary | null
   routing_attempt_count: number
@@ -108,6 +111,9 @@ export interface TaskDetail extends Task {
   routing_attempts: RoutingAttempt[]
   assignments: Assignment[]
   expected_window_seconds: number
+  offer_response_window_seconds?: number
+  /** Required expertise can only change in draft, declined or assignment failed. */
+  expertise_editable?: boolean
 }
 
 export type ActorType = 'operator' | 'routing_engine' | 'contributor' | 'system'
@@ -147,6 +153,7 @@ export interface EligibleContributor extends Contributor {
   eligible: boolean
   ineligible_reason: string | null
   previously_declined: boolean
+  previously_released?: boolean
 }
 
 export interface PageMeta {
