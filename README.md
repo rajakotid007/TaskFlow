@@ -31,10 +31,12 @@ operator console.
 
 ## Demo video
 
-A 3-minute narrated walkthrough of the running console:
-**[▶ Watch the demo (docs/TaskFlow-demo.mp4, 5 MB)](docs/TaskFlow-demo.mp4)**
 
----
+https://github.com/user-attachments/assets/ccab415d-c5bf-4b7f-be51-7d34eccac634
+
+
+
+
 
 ## Contents
 
