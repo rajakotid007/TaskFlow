@@ -29,21 +29,29 @@ operator console.
 
 ---
 
+## Demo video
+
+A 3-minute narrated walkthrough of the running console:
+**[▶ Watch the demo (docs/TaskFlow-demo.mp4, 5 MB)](docs/TaskFlow-demo.mp4)**
+
+---
+
 ## Contents
 
-1. [Repository layout](#repository-layout)
-2. [Features](#features)
-3. [How it works](#how-it-works)
-4. [Tech stack](#tech-stack)
-5. [Project structure](#project-structure)
-6. [Setup](#setup)
-7. [Everyday commands](#everyday-commands)
-8. [Using the console: the four core scenarios](#using-the-console-the-four-core-scenarios)
-9. [API reference](#api-reference)
-10. [Testing](#testing)
-11. [Troubleshooting](#troubleshooting)
-12. [Design decisions, trade-offs and limitations](#design-decisions-trade-offs-and-limitations)
-13. [Further documentation](#further-documentation)
+1. [Demo video](#demo-video)
+2. [Repository layout](#repository-layout)
+3. [Features](#features)
+4. [How it works](#how-it-works)
+5. [Tech stack](#tech-stack)
+6. [Project structure](#project-structure)
+7. [Setup](#setup)
+8. [Everyday commands](#everyday-commands)
+9. [Using the console: the four core scenarios](#using-the-console-the-four-core-scenarios)
+10. [API reference](#api-reference)
+11. [Testing](#testing)
+12. [Troubleshooting](#troubleshooting)
+13. [Design decisions, trade-offs and limitations](#design-decisions-trade-offs-and-limitations)
+14. [Further documentation](#further-documentation)
 
 ---
 
